@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>地球自转与昼夜交替 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .info-panel {
+    margin: 12px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 16px 20px;
+    color: #333;
+    max-height: 320px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .info-panel h3 {
+    margin: 0 0 10px;
+    color: #2c3e50;
+    font-size: 16px;
+  }
+  .info-panel p {
+    margin: 0 0 10px;
+    line-height: 1.85;
+    font-size: 13px;
+    color: #444;
+    text-indent: 2em;
+  }
+  .info-panel p:last-child { margin-bottom: 0; }
+  .info-panel .highlight { color: #d97706; font-weight: bold; }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>地球自转与昼夜交替</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>位置</th><th>时间</th><th>状态</th></tr></thead>
+    <tbody>
+      <tr><td>太阳直射点</td><td>12:00</td><td>正午</td></tr>
+      <tr><td>直射点东 90°</td><td>18:00</td><td>黄昏（昏线）</td></tr>
+      <tr><td>直射点对面</td><td>0:00 / 24:00</td><td>子夜</td></tr>
+      <tr><td>直射点西 90°</td><td>6:00</td><td>黎明（晨线）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>时间（地方时） = <span id="timeVal">12:00</span>
+    <input type="range" id="timeRange" min="0" max="24" value="12" step="0.1">
+  </label>
+
+  <label>自转速度 = <span id="speedVal">1.0</span> ×
+    <input type="range" id="speedRange" min="0.1" max="5" value="1" step="0.1">
+  </label>
+
+  <div class="row"><input type="checkbox" id="axisToggle" checked><label for="axisToggle" style="margin:0">显示地轴（倾斜 23.5°）</label></div>
+  <div class="row"><input type="checkbox" id="gridToggle" checked><label for="gridToggle" style="margin:0">显示经纬网</label></div>
+  <div class="row"><input type="checkbox" id="termToggle" checked><label for="termToggle" style="margin:0">显示晨昏线</label></div>
+
+  <button id="playBtn">⏸ 暂停</button>
+  <button id="resetBtn" class="secondary">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+  <div class="nav-hint">💡 在右侧俯视图中拖拽地球，可手动自转</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3>地球自转与昼夜交替原理</h3>
+    <div id="infoBody">
+      <p>地球是一个不发光且不透明的球体，因此在同一时间内，太阳只能照亮地球表面的一半。向着太阳的半球是<span class="highlight">昼半球</span>，背着太阳的半球是<span class="highlight">夜半球</span>。昼半球和夜半球的分界线（圈），叫做<span class="highlight">晨昏线（圈）</span>。</p>
+      <p>地球绕着地轴不停地旋转，这叫做<span class="highlight">地球自转</span>。地球自转的方向是自西向东，从北极上空看是逆时针方向，从南极上空看是顺时针方向。地球自转一周的时间约为 24 小时，也就是一天。</p>
+      <p>由于地球在不停地自转，使得地球表面产生昼夜交替现象。晨昏线由<span class="highlight">晨线</span>和<span class="highlight">昏线</span>组成。随着地球自西向东转动，由黑夜进入白昼的界线是晨线，由白昼进入黑夜的界线是昏线。晨线上正值日出，昏线上正值日落。</p>
+      <p>由于地球自转，不同经度的地方迎来了日出的时间不同，这就产生了<span class="highlight">地方时</span>的差异。东边的时间总比西边早。太阳直射点所在经线的地方时为正午 12:00，此时它的对面经线为子夜 0:00。</p>
+      <p>地球在自转的同时，地轴始终是倾斜的（倾角约 23.5°），北极总是指向北极星附近。由于地轴的倾斜，使得太阳直射点在南北回归线之间移动，从而产生了四季变化和极昼极夜现象，但在本实验中我们主要观察自转带来的昼夜交替。</p>
+    </div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var time = 12; // 0 - 24 小时
+  var playing = true;
+  var speed = 1;
+  var showAxis = true, showGrid = true, showTerm = true;
+
+  var leftW, rightW, leftCx, leftCy, leftR, rightCx, rightCy, rightR;
+
+  var timeValEl = document.getElementById('timeVal');
+  var timeRangeEl = document.getElementById('timeRange');
+  var speedValEl = document.getElementById('speedVal');
+  var readoutEl = document.getElementById('readout');
+
+  // 生成大陆点阵
+  var landCenters = [
+    { lat: 30, lon: 110 }, { lat: 40, lon: -100 }, { lat: 0, lon: 20 },
+    { lat: -10, lon: 130 }, { lat: -20, lon: -60 }, { lat: 50, lon: 60 },
+    { lat: -30, lon: 140 }
+  ];
+  var gridPoints = [];
+  for (var lat = -80; lat <= 80; lat += 10) {
+    for (var lon = 0; lon < 360; lon += 10) {
+      var isLand = false;
+      for (var i = 0; i < landCenters.length; i++) {
+        var c = landCenters[i];
+        var dLat = lat - c.lat;
+        var dLon = lon - c.lon;
+        if (dLon > 180) dLon = 360 - dLon;
+        if (dLon < -180) dLon = 360 + dLon;
+        dLon *= Math.cos(lat * Math.PI / 180);
+        if (dLat * dLat + dLon * dLon < 1200) {
+          isLand = true; break;
+        }
+      }
+      gridPoints.push({ lat: lat, lon: lon, isLand: isLand });
+    }
+  }
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    leftW = cssW * 0.56;
+    rightW = cssW * 0.44;
+    
+    leftCx = leftW * 0.5;
+    leftCy = cssH * 0.5;
+    leftR = Math.min(leftW * 0.38, cssH * 0.38);
+
+    rightCx = leftW + rightW * 0.5;
+    rightCy = cssH * 0.5;
+    rightR = Math.min(rightW * 0.35, cssH * 0.35);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function formatTime(t) {
+    var h = Math.floor(t);
+    var m = Math.floor((t - h) * 60);
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
+
+  function drawSunlight() {
+    // 平行光背景
+    var glow = ctx.createLinearGradient(leftW, 0, leftW * 0.5, 0);
+    glow.addColorStop(0, 'rgba(255, 230, 150, 0.15)');
+    glow.addColorStop(1, 'rgba(255, 230, 150, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, leftW, cssH);
+
+    // 光线箭头
+    ctx.strokeStyle = 'rgba(255, 200, 50, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([8, 8]);
+    for (var y = 40; y < cssH - 20; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(leftW - 10, y);
+      ctx.lineTo(leftCx + leftR + 20, y);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(leftCx + leftR + 20, y);
+      ctx.lineTo(leftCx + leftR + 30, y - 4);
+      ctx.lineTo(leftCx + leftR + 30, y + 4);
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.4)';
+      ctx.fill();
+    }
+    ctx.setLineDash([]);
+  }
+
+  function drawEarth3D(TH) {
+    var tilt = 23.5 * Math.PI / 180;
+    var rot = (time / 24) * TAU;
+
+    // 绘制暗半球（底）
+    ctx.beginPath();
+    ctx.arc(leftCx, leftCy, leftR, 0, TAU);
+    var darkG = ctx.createRadialGradient(leftCx - leftR*0.5, leftCy - leftR*0.5, leftR*0.1, leftCx, leftCy, leftR);
+    darkG.addColorStop(0, '#1a1a2e');
+    darkG.addColorStop(1, '#0a0a15');
+    ctx.fillStyle = darkG;
+    ctx.fill();
+
+    // 绘制点阵（按 z 轴排序，先画背面）
+    var drawList = [];
+    for (var i = 0; i < gridPoints.length; i++) {
+      var pt = gridPoints[i];
+      var phi = pt.lat * Math.PI / 180;
+      var lambda = pt.lon * Math.PI / 180 + rot;
+
+      var x3 = Math.cos(phi) * Math.sin(lambda);
+      var y3 = Math.sin(phi);
+      var z3 = Math.cos(phi) * Math.cos(lambda);
+
+      // 地轴倾斜旋转（绕 x 轴）
+      var y3_t = y3 * Math.cos(tilt) - z3 * Math.sin(tilt);
+      var z3_t = y3 * Math.sin(tilt) + z3 * Math.cos(tilt);
+      var x3_t = x3;
+
+      // 只保留正面（z > 0）
+      if (z3_t > 0) {
+        // 光照判定：太阳在右侧 (x3_t > 0 为白天)
+        var isDay = x3_t > 0;
+        
+        var px = leftCx + x3_t * leftR;
+        var py = leftCy - y3_t * leftR;
+        var size = 2.5 * z3_t;
+        if (size < 0.5) size = 0.5;
+
+        drawList.push({
+          x: px, y: py, z: z3_t, size: size, isDay: isDay, isLand: pt.isLand
+        });
+      }
+    }
+
+    // 按 z 排序（由远及近）
+    drawList.sort(function(a, b) { return a.z - b.z; });
+
+    // 绘制点阵
+    for (var j = 0; j < drawList.length; j++) {
+      var p = drawList[j];
+      if (p.isLand) {
+        ctx.fillStyle = p.isDay ? 'rgba(80, 200, 100, 0.9)' : 'rgba(30, 80, 40, 0.8)';
+      } else {
+        if (!showGrid && !p.isLand) continue;
+        ctx.fillStyle = p.isDay ? 'rgba(100, 180, 255, 0.5)' : 'rgba(30, 50, 90, 0.6)';
+      }
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, TAU);
+      ctx.fill();
+    }
+
+    // 加上整体高光（仅白天侧）
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(leftCx, leftCy, leftR, 0, TAU);
+    ctx.clip();
+    var dayG = ctx.createLinearGradient(leftCx, leftCy, leftCx + leftR, leftCy);
+    dayG.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    dayG.addColorStop(1, 'rgba(255, 255, 255, 0.2)');
+    ctx.fillStyle = dayG;
+    ctx.fillRect(leftCx, leftCy - leftR, leftR, leftR * 2);
+    ctx.restore();
+
+    // 晨昏线（屏幕上的投影为直线，略微弯曲）
+    if (showTerm) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      // 因为在屏幕上，太阳在正右方，晨昏线是垂直的
+      // 但考虑到地轴倾斜，实际上晨昏线应该与地轴垂直
+      // 为简单显示，画一条经过中心的微弧
+      ctx.moveTo(leftCx, leftCy - leftR);
+      ctx.quadraticCurveTo(leftCx + 10, leftCy, leftCx, leftCy + leftR);
+      ctx.stroke();
+    }
+
+    // 地轴
+    if (showAxis) {
+      var axisLen = leftR * 1.4;
+      var ax1 = leftCx - Math.sin(tilt) * axisLen;
+      var ay1 = leftCy + Math.cos(tilt) * axisLen;
+      var ax2 = leftCx + Math.sin(tilt) * axisLen;
+      var ay2 = leftCy - Math.cos(tilt) * axisLen;
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(ax1, ay1);
+      ctx.lineTo(ax2, ay2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('N', ax2 - 5, ay2 - 10);
+      ctx.fillText('S', ax1 + 5, ay1 + 15);
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('侧视图：光照与自转', leftCx, 25);
+  }
+
+  function drawEarthTopView(TH) {
+    var rot = (time / 24) * TAU;
+
+    // 地球背景
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, rightR, 0, TAU);
+    ctx.fillStyle = '#0a0a15';
+    ctx.fill();
+
+    // 右侧白天区域
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, rightR, -Math.PI/2, Math.PI/2, false);
+    ctx.closePath();
+    ctx.clip();
+
+    var dayG = ctx.createLinearGradient(rightCx, rightCy, rightCx + rightR, rightCy);
+    dayG.addColorStop(0, '#1e4d80');
+    dayG.addColorStop(1, '#4a90e2');
+    ctx.fillStyle = dayG;
+    ctx.fillRect(rightCx, rightCy - rightR, rightR, rightR * 2);
+
+    // 大陆（用点阵画俯视图）
+    var rot = (time / 24) * TAU;
+    for (var i = 0; i < gridPoints.length; i++) {
+      var pt = gridPoints[i];
+      if (!pt.isLand) continue;
+      var phi = pt.lat * Math.PI / 180;
+      var lambda = pt.lon * Math.PI / 180 + rot;
+      
+      var x2 = Math.cos(phi) * Math.sin(lambda);
+      var y2 = Math.sin(phi);
+      
+      // 俯视图的透视：假设从北极上空看，赤道是边界，所以纬度越高，半径越小
+      var r2 = rightR * (1 - y2); // 这里简单映射，y2=1(北极)时 r2=0
+      // 等等，球面投影到圆：r = R * cos(lat)
+      var px = rightCx + Math.sin(lambda) * rightR * Math.cos(phi);
+      var py = rightCy - Math.cos(lambda) * rightR * Math.cos(phi);
+
+      ctx.fillStyle = 'rgba(80, 200, 100, 0.8)';
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 晨昏线
+    if (showTerm) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(rightCx, rightCy - rightR);
+      ctx.lineTo(rightCx, rightCy + rightR);
+      ctx.stroke();
+
+      // 晨昏线标签
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('昏线', rightCx, rightCy - rightR - 10);
+      ctx.fillText('晨线', rightCx, rightCy + rightR + 20);
+    }
+
+    // 自转箭头
+    var arrowR = rightR * 0.65;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, arrowR, -Math.PI/4, Math.PI/4, false);
+    ctx.stroke();
+
+    // 箭头尖
+    var ax = rightCx + Math.cos(Math.PI/4) * arrowR;
+    var ay = rightCy + Math.sin(Math.PI/4) * arrowR;
+    var angle = Math.PI/4 + Math.PI/2;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle - 0.4) * 10, ay - Math.sin(angle - 0.4) * 10);
+    ctx.lineTo(ax - Math.cos(angle + 0.4) * 10, ay - Math.sin(angle + 0.4) * 10);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('俯视图：北极上空看', rightCx, 25);
+
+    // 太阳直射点标记
+    // 太阳在右侧，所以直射点在 3 点钟方向
+    var sunX = rightCx + rightR * Math.sin(rot);
+    var sunY = rightCy - rightR * Math.cos(rot);
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 4, 0, TAU);
+    ctx.fill();
+    ctx.font = '10px sans-serif';
+    ctx.fillText('☀ 直射点', sunX + 30, sunY + 4);
+  }
+
+  function draw() {
+    var TH = App.getTheme();
+
+    ctx.fillStyle = '#050a14';
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    // 星空
+    ctx.fillStyle = '#fff';
+    for (var i = 0; i < 60; i++) {
+      var sx = (Math.sin(i * 12.3) * 0.5 + 0.5) * cssW;
+      var sy = (Math.cos(i * 45.6) * 0.5 + 0.5) * cssH;
+      ctx.globalAlpha = 0.2 + (i % 5) * 0.1;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 0.8, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    drawSunlight();
+    drawEarth3D(TH);
+    drawEarthTopView(TH);
+
+    // 分隔线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(leftW, 10);
+    ctx.lineTo(leftW, cssH - 10);
+    ctx.stroke();
+  }
+
+  function updateReadout() {
+    var html = '当前地方时：<b>' + formatTime(time) + '</b><br>';
+    if (time > 6 && time < 18) {
+      html += '直射点状态：<b>昼半球</b><br>';
+    } else {
+      html += '直射点状态：<b>夜半球</b><br>';
+    }
+    
+    // 简单划分
+    if (time >= 5 && time < 7) html += '晨昏线状态：接近<b>晨线</b>';
+    else if (time >= 17 && time < 19) html += '晨昏线状态：接近<b>昏线</b>';
+    else if (time >= 7 && time < 17) html += '晨昏线状态：处于<b>白天</b>';
+    else html += '晨昏线状态：处于<b>黑夜</b>';
+
+    readoutEl.innerHTML = html;
+
+    // 高亮表格
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.remove('active');
+    }
+    if (Math.abs(time - 12) < 1) rows[0].classList.add('active');
+    else if (Math.abs(time - 18) < 1) rows[1].classList.add('active');
+    else if (time < 1 || time > 23) rows[2].classList.add('active');
+    else if (Math.abs(time - 6) < 1) rows[3].classList.add('active');
+  }
+
+  // 拖拽右侧俯视图
+  var dragging = false;
+  var activePointer = null;
+
+  function updateTimeFromPointer(px, py) {
+    var dx = px - rightCx;
+    var dy = py - rightCy;
+    var dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > rightR * 1.5) return; // 防止过远
+
+    var angle = Math.atan2(-dy, dx); // 标准逆时针角度
+    if (angle < 0) angle += TAU;
+
+    // 正右方(angle=0)是12:00
+    var t = 12 + (angle / TAU) * 24;
+    if (t >= 24) t -= 24;
+    time = t;
+
+    timeRangeEl.value = time;
+    timeValEl.textContent = formatTime(time);
+    playing = false;
+    document.getElementById('playBtn').textContent = '▶ 播放';
+  }
+
+  canvas.addEventListener('pointerdown', function(e){
+    if (activePointer !== null) return;
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+
+    if (px > leftW) {
+      var dx = px - rightCx;
+      var dy = py - rightCy;
+      if (dx*dx + dy*dy < rightR * rightR * 1.2) {
+        dragging = true;
+        activePointer = e.pointerId;
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+        updateTimeFromPointer(px, py);
+      }
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e){
+    if (!dragging || e.pointerId !== activePointer) return;
+    var rect = canvas.getBoundingClientRect();
+    updateTimeFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+  });
+
+  function endPointer(e) {
+    if (e.pointerId !== activePointer) return;
+    dragging = false;
+    activePointer = null;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  // 侧栏
+  timeRangeEl.addEventListener('input', function(e){
+    time = parseFloat(e.target.value);
+    timeValEl.textContent = formatTime(time);
+    playing = false;
+    document.getElementById('playBtn').textContent = '▶ 播放';
+  });
+
+  document.getElementById('speedRange').addEventListener('input', function(e){
+    speed = parseFloat(e.target.value);
+    speedValEl.textContent = speed.toFixed(1);
+  });
+
+  document.getElementById('axisToggle').addEventListener('change', function(e){ showAxis = e.target.checked; });
+  document.getElementById('gridToggle').addEventListener('change', function(e){ showGrid = e.target.checked; });
+  document.getElementById('termToggle').addEventListener('change', function(e){ showTerm = e.target.checked; });
+
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function(){
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function(){
+    time = 12;
+    playing = true;
+    speed = 1;
+    timeRangeEl.value = 12;
+    timeValEl.textContent = '12:00';
+    document.getElementById('speedRange').value = 1;
+    speedValEl.textContent = '1.0';
+    playBtn.textContent = '⏸ 暂停';
+  });
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+    if (!isFinite(dt) || dt < 0) dt = 0;
+
+    if (playing && !dragging) {
+      // 加快时间流速便于观察，例如 1 秒转 1 小时
+      time += dt * speed * 1.5; 
+      if (time >= 24) time -= 24;
+      timeRangeEl.value = time;
+      timeValEl.textContent = formatTime(time);
+    }
+
+    if (!isFinite(time)) time = 12;
+
+    draw();
+    updateReadout();
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
