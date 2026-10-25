@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>地球公转与四季变化 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>地球公转与四季变化</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>节气</th><th>直射点</th><th>北半球昼夜</th></tr></thead>
+    <tbody>
+      <tr data-id="chunfen"><td>春分 (3.21)</td><td>赤道</td><td>昼夜平分</td></tr>
+      <tr data-id="xiazhi"><td>夏至 (6.22)</td><td>北回归线</td><td>昼最长，极昼</td></tr>
+      <tr data-id="qiufen"><td>秋分 (9.23)</td><td>赤道</td><td>昼夜平分</td></tr>
+      <tr data-id="dongzhi"><td>冬至 (12.22)</td><td>南回归线</td><td>昼最短，极夜</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>公转位置 = <span id="dayVal">第 0 天</span>
+    <input type="range" id="dayRange" min="0" max="364" value="0" step="1">
+  </label>
+
+  <div class="row"><input type="checkbox" id="rayToggle" checked><label for="rayToggle" style="margin:0">显示太阳光线</label></div>
+  <div class="row"><input type="checkbox" id="axisToggle" checked><label for="axisToggle" style="margin:0">显示地轴与赤道</label></div>
+  <div class="row"><input type="checkbox" id="termToggle" checked><label for="termToggle" style="margin:0">显示晨昏线</label></div>
+
+  <button id="playBtn">⏸ 暂停</button>
+  <button id="resetBtn" class="secondary">↺ 重置视角</button>
+
+  <div class="readout" id="readout"></div>
+  <div class="nav-hint">💡 拖动滑块或点击上方节气查看</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var day = 0; // 0-364, 0为春分
+  var playing = true;
+  var speed = 20; // 天/秒
+
+  var showRay = true;
+  var showAxis = true;
+  var showTerm = true;
+
+  // 布局
+  var leftW, rightW;
+  var sunX, sunY, orbitR;
+  var earthX, earthY, earthR;
+  var rightCx, rightCy, rightR;
+
+  var dayRangeEl = document.getElementById('dayRange');
+  var dayValEl = document.getElementById('dayVal');
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    leftW = cssW * 0.55;
+    rightW = cssW * 0.45;
+
+    sunX = leftW * 0.5;
+    sunY = cssH * 0.5;
+    orbitR = Math.min(leftW * 0.36, cssH * 0.38);
+
+    rightCx = leftW + rightW * 0.5;
+    rightCy = cssH * 0.5;
+    rightR = Math.min(rightW * 0.35, cssH * 0.35);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  // 获取地球在轨道上的位置
+  function getEarthPos() {
+    // 0天为春分，位于左半圈(公转逆时针，太阳在右？)
+    // 为了让太阳光线从右侧射入，我们设定春分在地球在左侧。
+    // 太阳在中心，地球逆时针转。
+    // 0: 春分 (左侧) -> 90: 夏至 (下方) -> 180: 秋分 (右侧) -> 270: 冬至 (上方)
+    var angle = (day / 365) * TAU + Math.PI; // 起始在左 (Math.PI)
+    var x = sunX + Math.cos(angle) * orbitR;
+    var y = sunY + Math.sin(angle) * orbitR;
+    return { x: x, y: y, angle: angle };
+  }
+
+  function getSeasonInfo(d) {
+    var lat = 23.5 * Math.sin((d / 365) * TAU);
+    var season = '';
+    var term = '';
+    
+    if (d === 0) { season = '春季'; term = '春分'; }
+    else if (d === 91) { season = '夏季'; term = '夏至'; }
+    else if (d === 182) { season = '秋季'; term = '秋分'; }
+    else if (d === 273) { season = '冬季'; term = '冬至'; }
+    else if (d < 91) { season = '春季'; }
+    else if (d < 182) { season = '夏季'; }
+    else if (d < 273) { season = '秋季'; }
+    else { season = '冬季'; }
+
+    return { lat: lat, season: season, term: term };
+  }
+
+  function drawLeftView(TH) {
+    var ep = getEarthPos();
+    
+    // 太阳
+    var sunGlow = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 80);
+    sunGlow.addColorStop(0, 'rgba(255, 220, 100, 0.6)');
+    sunGlow.addColorStop(0.4, 'rgba(255, 180, 50, 0.2)');
+    sunGlow.addColorStop(1, 'rgba(255, 150, 0, 0)');
+    ctx.fillStyle = sunGlow;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 80, 0, TAU);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 20, 0, TAU);
+    ctx.fillStyle = '#ffcc33';
+    ctx.fill();
+
+    // 公转轨道
+    ctx.strokeStyle = withAlpha(TH.normal, 0.3);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, orbitR, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 标注四季点
+    function drawNode(angle, label) {
+      var nx = sunX + Math.cos(angle) * orbitR;
+      var ny = sunY + Math.sin(angle) * orbitR;
+      ctx.beginPath();
+      ctx.arc(nx, ny, 4, 0, TAU);
+      ctx.fillStyle = TH.normal;
+      ctx.fill();
+      ctx.fillStyle = '#64748b';
+      ctx.font = '12px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, nx + Math.cos(angle)*20, ny + Math.sin(angle)*20);
+    }
+    // 春分(Math.PI), 夏至(Math.PI/2), 秋分(0), 冬至(-Math.PI/2)
+    drawNode(Math.PI, '春分');
+    drawNode(Math.PI/2, '夏至');
+    drawNode(0, '秋分');
+    drawNode(-Math.PI/2, '冬至');
+
+    // 地轴倾斜方向（固定指向屏幕右上角，倾角23.5度）
+    var tiltAngle = -23.5 * Math.PI / 180; 
+    var axisDx = Math.sin(tiltAngle) * 30;
+    var axisDy = -Math.cos(tiltAngle) * 30;
+
+    // 太阳光线 (平行光向右)
+    if (showRay) {
+      ctx.strokeStyle = 'rgba(255, 200, 50, 0.4)';
+      ctx.lineWidth = 1;
+      for (var i = -1; i <= 1; i++) {
+        var ry = ep.y + i * 15;
+        ctx.beginPath();
+        ctx.moveTo(sunX + 25, ry);
+        ctx.lineTo(ep.x - 15, ry);
+        ctx.stroke();
+      }
+    }
+
+    // 地球
+    ctx.save();
+    ctx.translate(ep.x, ep.y);
+    
+    // 地球本体
+    var earthG = ctx.createRadialGradient(-5, -5, 2, 0, 0, 15);
+    earthG.addColorStop(0, '#6ac0f0');
+    earthG.addColorStop(1, '#1a4a80');
+    ctx.beginPath();
+    ctx.arc(0, 0, 15, 0, TAU);
+    ctx.fillStyle = earthG;
+    ctx.fill();
+
+    // 地轴
+    if (showAxis) {
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-axisDx, -axisDy);
+      ctx.lineTo(axisDx, axisDy);
+      ctx.stroke();
+      
+      // 北极标记 N
+      ctx.fillStyle = '#ef4444';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('N', axisDx*1.2, axisDy*1.2);
+    }
+
+    ctx.restore();
+
+    // 左侧标题
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 13px "PingFang SC", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('公转俯视图', 20, 30);
+  }
+
+  function drawRightView(TH) {
+    // 分隔线
+    ctx.strokeStyle = withAlpha(TH.normal, 0.15);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(leftW, 20);
+    ctx.lineTo(leftW, cssH - 20);
+    ctx.stroke();
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 13px "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('地球特写视角', rightCx, 30);
+
+    var info = getSeasonInfo(day);
+    var tiltAngle = -23.5 * Math.PI / 180; // 地轴固定向左倾斜（屏幕视角）
+
+    // 阳光背景
+    var sunGlow = ctx.createLinearGradient(leftW, 0, leftW + 60, 0);
+    sunGlow.addColorStop(0, 'rgba(255, 200, 50, 0.2)');
+    sunGlow.addColorStop(1, 'rgba(255, 200, 50, 0)');
+    ctx.fillStyle = sunGlow;
+    ctx.fillRect(leftW, 0, 60, cssH);
+
+    // 绘制平行阳光
+    if (showRay) {
+      ctx.strokeStyle = 'rgba(255, 200, 50, 0.4)';
+      ctx.lineWidth = 1;
+      for (var y = rightCy - rightR; y <= rightCy + rightR; y += 15) {
+        ctx.beginPath();
+        ctx.moveTo(leftW + 20, y);
+        ctx.lineTo(rightCx - rightR - 10, y);
+        ctx.stroke();
+      }
+    }
+
+    // 绘制地球
+    ctx.save();
+    ctx.translate(rightCx, rightCy);
+    ctx.rotate(tiltAngle); // 旋转地轴
+
+    // 地球深空背景
+    ctx.beginPath();
+    ctx.arc(0, 0, rightR, 0, TAU);
+    ctx.fillStyle = '#0a1420';
+    ctx.fill();
+
+    // 地球受光面（右半圆）
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, rightR, -Math.PI/2, Math.PI/2, false);
+    ctx.closePath();
+    ctx.clip();
+    var earthG = ctx.createLinearGradient(0, 0, rightR, 0);
+    earthG.addColorStop(0, '#1a4a80');
+    earthG.addColorStop(1, '#6ac0f0');
+    ctx.fillStyle = earthG;
+    ctx.fillRect(-rightR, -rightR, rightR*2, rightR*2);
+    ctx.restore();
+
+    // 晨昏线
+    if (showTerm) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -rightR);
+      ctx.lineTo(0, rightR);
+      ctx.stroke();
+    }
+
+    // 绘制纬线
+    var latLines = [
+      { lat: 66.5, color: 'rgba(255,255,255,0.4)', label: '北极圈' },
+      { lat: 23.5, color: '#ef4444', label: '北回归线' },
+      { lat: 0, color: '#3b82f6', label: '赤道' },
+      { lat: -23.5, color: '#ef4444', label: '南回归线' },
+      { lat: -66.5, color: 'rgba(255,255,255,0.4)', label: '南极圈' }
+    ];
+
+    ctx.lineWidth = 1;
+    for (var i = 0; i < latLines.length; i++) {
+      var l = latLines[i];
+      var ly = -rightR * Math.sin(l.lat * Math.PI / 180);
+      var rx = rightR * Math.cos(l.lat * Math.PI / 180);
+      
+      // 纬线圈
+      ctx.beginPath();
+      ctx.ellipse(0, ly, rx, rx * 0.2, 0, 0, TAU);
+      ctx.strokeStyle = l.color;
+      ctx.stroke();
+      
+      // 标签
+      if (showAxis) {
+        ctx.fillStyle = l.color;
+        ctx.font = '10px "PingFang SC", sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(l.label, -rx - 5, ly);
+      }
+    }
+
+    // 直射点
+    var directY = -rightR * Math.sin(info.lat * Math.PI / 180);
+    ctx.beginPath();
+    ctx.arc(0, directY, 4, 0, TAU);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fill();
+    // 直射点光芒
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, directY); ctx.lineTo(rightR*0.8, directY);
+    ctx.stroke();
+
+    // 地轴延长线
+    if (showAxis) {
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(0, -rightR * 1.2);
+      ctx.lineTo(0, rightR * 1.2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // N字
+      ctx.fillStyle = '#ef4444';
+      ctx.textAlign = 'center';
+      ctx.fillText('N', 0, -rightR * 1.2 - 10);
+      ctx.fillText('S', 0, rightR * 1.2 + 10);
+    }
+
+    ctx.restore();
+
+    // 信息面板
+    ctx.fillStyle = '#334155';
+    ctx.font = 'bold 14px "PingFang SC", sans-serif';
+    ctx.textAlign = 'left';
+    
+    var stateText = info.season + ' | ' + (info.term || '');
+    ctx.fillText(stateText, leftW + 20, cssH - 60);
+    
+    ctx.font = '12px "PingFang SC", sans-serif';
+    ctx.fillStyle = '#64748b';
+    var latText = '直射点：' + (info.lat > 0 ? '北纬 ' : '南纬 ') + Math.abs(info.lat).toFixed(1) + '°';
+    if (Math.abs(info.lat) < 0.1) latText = '直射点：赤道';
+    ctx.fillText(latText, leftW + 20, cssH - 40);
+  }
+
+  function withAlpha(c, a) {
+    if (!c) return 'rgba(0,0,0,' + a + ')';
+    c = String(c).trim();
+    if (c.charAt(0) === '#') {
+      var h = c.slice(1);
+      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+      if (h.length >= 6) {
+        var n = parseInt(h.slice(0, 6), 16);
+        if (isNaN(n)) return c;
+        return 'rgba(' + ((n>>16)&255) + ',' + ((n>>8)&255) + ',' + (n&255) + ',' + a + ')';
+      }
+    }
+    return c;
+  }
+
+  function updateReadout() {
+    var info = getSeasonInfo(day);
+    var html = '当前日期：<b>第 ' + Math.floor(day) + ' 天</b><br>';
+    html += '北半球季节：<b>' + info.season + '</b><br>';
+    if (info.term) html += '节气：<b>' + info.term + '</b><br>';
+    
+    var latStr = (info.lat > 0 ? '北纬 ' : '南纬 ') + Math.abs(info.lat).toFixed(1) + '°';
+    if (Math.abs(info.lat) < 0.1) latStr = '赤道';
+    html += '太阳直射点：<b>' + latStr + '</b><br>';
+    
+    if (info.lat > 0) {
+      html += '北半球：昼长夜短，北极有<b>极昼</b>';
+    } else if (info.lat < 0) {
+      html += '北半球：昼短夜长，北极有<b>极夜</b>';
+    } else {
+      html += '全球：昼夜平分';
+    }
+    
+    document.getElementById('readout').innerHTML = html;
+    
+    // 更新表格
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    var activeId = '';
+    if (day === 0) activeId = 'chunfen';
+    else if (day === 91) activeId = 'xiazhi';
+    else if (day === 182) activeId = 'qiufen';
+    else if (day === 273) activeId = 'dongzhi';
+    
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === activeId);
+    }
+  }
+
+  function draw() {
+    var TH = App.getTheme();
+    
+    ctx.fillStyle = '#f8fafc'; // 浅色背景
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    drawLeftView(TH);
+    drawRightView(TH);
+
+    updateReadout();
+  }
+
+  // 交互
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+
+    if (playing) {
+      day += dt * speed;
+      if (day >= 365) day -= 365;
+      dayRangeEl.value = Math.floor(day);
+      dayValEl.textContent = '第 ' + Math.floor(day) + ' 天';
+    }
+
+    draw();
+  }
+
+  dayRangeEl.addEventListener('input', function(e) {
+    day = parseFloat(e.target.value);
+    dayValEl.textContent = '第 ' + Math.floor(day) + ' 天';
+    playing = false;
+    document.getElementById('playBtn').textContent = '▶ 播放';
+  });
+
+  document.getElementById('rayToggle').addEventListener('change', function(e) { showRay = e.target.checked; });
+  document.getElementById('axisToggle').addEventListener('change', function(e) { showAxis = e.target.checked; });
+  document.getElementById('termToggle').addEventListener('change', function(e) { showTerm = e.target.checked; });
+
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function() {
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    day = 0;
+    playing = true;
+    dayRangeEl.value = 0;
+    dayValEl.textContent = '第 0 天';
+    playBtn.textContent = '⏸ 暂停';
+  });
+
+  // 表格点击跳转
+  var trs = document.querySelectorAll('#caseTable tbody tr');
+  for (var ti = 0; ti < trs.length; ti++) {
+    (function(tr) {
+      tr.addEventListener('click', function() {
+        var id = tr.getAttribute('data-id');
+        if (id === 'chunfen') day = 0;
+        else if (id === 'xiazhi') day = 91;
+        else if (id === 'qiufen') day = 182;
+        else if (id === 'dongzhi') day = 273;
+        
+        dayRangeEl.value = day;
+        dayValEl.textContent = '第 ' + Math.floor(day) + ' 天';
+        playing = false;
+        playBtn.textContent = '▶ 播放';
+      });
+    })(trs[ti]);
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
