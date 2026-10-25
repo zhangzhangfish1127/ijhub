@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>心脏与血液循环 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>心脏与血液循环</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>循环类型</th><th>起点</th><th>终点</th><th>血液变化</th></tr></thead>
+    <tbody>
+      <tr data-id="systemic"><td>体循环</td><td>左心室</td><td>右心房</td><td>动脉血 → 静脉血</td></tr>
+      <tr data-id="pulmonary"><td>肺循环</td><td>右心室</td><td>左心房</td><td>静脉血 → 动脉血</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>心率 = <span id="bpmVal">75</span> 次/分
+    <input type="range" id="bpmRange" min="40" max="150" value="75" step="1">
+  </label>
+
+  <div class="row"><input type="checkbox" id="labelToggle" checked><label for="labelToggle" style="margin:0">显示器官名称</label></div>
+  <div class="row"><input type="checkbox" id="valveToggle" checked><label for="valveToggle" style="margin:0">显示瓣膜动态</label></div>
+  <div class="row"><input type="checkbox" id="flowToggle" checked><label for="flowToggle" style="margin:0">显示血液流动</label></div>
+
+  <button id="playBtn">⏸ 暂停</button>
+  <button id="resetBtn" class="secondary">↺ 重置视角</button>
+
+  <div class="readout" id="readout">
+    点击画布中的心脏腔室或器官<br>可以查看详细说明<br><br>
+    <b>提示：</b>观察血液流经肺部与全身时的颜色变化。
+  </div>
+  <div class="nav-hint">💡 支持双指缩放与拖拽平移</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 30, scale: 1 };
+  var targetView = { cx: 0, cy: 30, scale: 1 };
+  
+  var bpm = 75;
+  var playing = true;
+  var showLabel = true;
+  var showValve = true;
+  var showFlow = true;
+  var activeSelection = null; 
+
+  var beatPhase = 0; 
+  
+  // 颜色定义
+  var COLOR_OXY = '#ef4444';      // 富氧血 (红)
+  var COLOR_DEOXY = '#3b82f6';    // 缺氧血 (蓝)
+  var COLOR_VESSEL_OXY = 'rgba(239, 68, 68, 0.15)'; 
+  var COLOR_VESSEL_DEOXY = 'rgba(59, 130, 246, 0.15)';
+  var COLOR_HEART = '#fca5a5';    
+
+  // 解剖结构布局
+  var layout = {
+    heartX: 0, heartY: 60,
+    lungX: -220, lungY: -80,
+    bodyX: 220, bodyY: 150,
+    RA: { x: -35, y: -15, w: 45, h: 40 }, 
+    RV: { x: -35, y: 45, w: 50, h: 60 },  
+    LA: { x: 35, y: -15, w: 45, h: 40 },  
+    LV: { x: 35, y: 45, w: 50, h: 60 }    
+  };
+
+  var paths = {
+    venaCava: [ {x: 220, y: 150}, {x: 120, y: 140}, {x: -15, y: 100}, {x: -35, y: -15} ], 
+    rightVentricle: [ {x: -35, y: -15}, {x: -35, y: 45} ], 
+    pulmonaryArtery: [ {x: -35, y: 45}, {x: -70, y: -20}, {x: -160, y: -60}, {x: -220, y: -80} ], 
+    pulmonaryVein: [ {x: -220, y: -80}, {x: -120, y: -160}, {x: 15, y: -120}, {x: 35, y: -15} ], 
+    leftVentricle: [ {x: 35, y: -15}, {x: 35, y: 45} ], 
+    aorta: [ {x: 35, y: 45}, {x: 70, y: 10}, {x: 130, y: 110}, {x: 220, y: 150} ] 
+  };
+
+  var particles = [];
+  var MAX_PARTICLES = 180;
+
+  function initParticles() {
+    particles = [];
+    for (var i = 0; i < MAX_PARTICLES; i++) {
+      resetParticle({}, true);
+    }
+  }
+
+  function resetParticle(p, isInit) {
+    var pathKeys = Object.keys(paths);
+    var pIdx = Math.floor(Math.random() * pathKeys.length);
+    var key = pathKeys[pIdx];
+    
+    p.pathKey = key;
+    p.progress = isInit ? Math.random() : 0;
+    p.speedBase = 0.6 + Math.random() * 0.4; 
+    p.oxy = (key === 'pulmonaryVein' || key === 'leftVentricle' || key === 'aorta');
+    return p;
+  }
+
+  initParticles();
+
+  function getPointOnPath(path, t) {
+    var n = path.length - 1;
+    if (n === 0) return path[0];
+    var seg = Math.floor(t * n);
+    if (seg >= n) seg = n - 1;
+    var localT = (t * n) - seg;
+    
+    var p0 = path[Math.max(0, seg - 1)];
+    var p1 = path[seg];
+    var p2 = path[seg + 1];
+    var p3 = path[Math.min(n, seg + 2)];
+    
+    var cp1x = p1.x + (p2.x - p0.x) / 6;
+    var cp1y = p1.y + (p2.y - p0.y) / 6;
+    var cp2x = p2.x - (p3.x - p1.x) / 6;
+    var cp2y = p2.y - (p3.y - p1.y) / 6;
+    
+    var mt = 1 - localT;
+    var x = mt*mt*mt*p1.x + 3*mt*mt*localT*cp1x + 3*mt*localT*localT*cp2x + localT*localT*localT*p2.x;
+    var y = mt*mt*mt*p1.y + 3*mt*mt*localT*cp1y + 3*mt*localT*localT*cp2y + localT*localT*localT*p2.y;
+    return { x: x, y: y };
+  }
+
+  // 获取心脏搏动状态
+  // 0.0 - 0.1: 心房收缩
+  // 0.1 - 0.4: 心室收缩
+  // 0.4 - 1.0: 全心舒张
+  function getHeartState() {
+    var t = beatPhase % 1;
+    if (t < 0.1) return { phase: 'atrial', sys: 0.5 }; // 0.5代表过渡
+    if (t < 0.4) return { phase: 'ventricular', sys: 1 };
+    return { phase: 'diastole', sys: 0 };
+  }
+
+  function updateParticles(dt) {
+    if (!playing || !showFlow) return;
+    
+    var state = getHeartState();
+    // 心室收缩时，进入主动脉和肺动脉的血流加速（泵血脉冲）
+    var pulseBoost = (state.phase === 'ventricular') ? 2.5 : 1;
+    
+    var flowSpeed = (bpm / 60) * 1.2;
+    
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      
+      var currentSpeed = flowSpeed * p.speedBase;
+      if (p.pathKey === 'aorta' || p.pathKey === 'pulmonaryArtery') {
+        currentSpeed *= pulseBoost;
+      }
+      
+      p.progress += dt * currentSpeed;
+      
+      if (p.progress >= 1) {
+        if (p.pathKey === 'venaCava') p.pathKey = 'rightVentricle';
+        else if (p.pathKey === 'rightVentricle') p.pathKey = 'pulmonaryArtery';
+        else if (p.pathKey === 'pulmonaryArtery') { p.pathKey = 'pulmonaryVein'; p.oxy = true; }
+        else if (p.pathKey === 'pulmonaryVein') p.pathKey = 'leftVentricle';
+        else if (p.pathKey === 'leftVentricle') p.pathKey = 'aorta';
+        else if (p.pathKey === 'aorta') { p.pathKey = 'venaCava'; p.oxy = false; }
+        p.progress = 0;
+      }
+    }
+  }
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  function drawPath(path, baseColor, borderColor, width) {
+    if (path.length < 2) return;
+    ctx.beginPath();
+    var p0 = w2s(path[0].x, path[0].y);
+    ctx.moveTo(p0[0], p0[1]);
+    
+    for (var i = 0; i < path.length - 1; i++) {
+      var p_1 = path[Math.max(0, i - 1)];
+      var p_0 = path[i];
+      var p_1_ = path[i+1];
+      var p_2 = path[Math.min(path.length - 1, i + 2)];
+      
+      var cp1x = p_0.x + (p_1_.x - p_1.x) / 6;
+      var cp1y = p_0.y + (p_1_.y - p_1.y) / 6;
+      var cp2x = p_1_.x - (p_2.x - p_0.x) / 6;
+      var cp2y = p_1_.y - (p_2.y - p_0.y) / 6;
+      
+      var sp1 = w2s(cp1x, cp1y);
+      var sp2 = w2s(cp2x, cp2y);
+      var sp3 = w2s(p_1_.x, p_1_.y);
+      
+      ctx.bezierCurveTo(sp1[0], sp1[1], sp2[0], sp2[1], sp3[0], sp3[1]);
+    }
+    
+    ctx.strokeStyle = baseColor;
+    ctx.lineWidth = width * view.scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    
+    if (borderColor) {
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 1.5 * view.scale;
+      ctx.stroke();
+    }
+  }
+
+  function drawHeart() {
+    var hCenter = w2s(layout.heartX, layout.heartY);
+    var state = getHeartState();
+    
+    ctx.save();
+    ctx.translate(hCenter[0], hCenter[1]);
+    ctx.scale(view.scale, view.scale);
+    
+    // 基础外轮廓 (固定)
+    ctx.beginPath();
+    ctx.moveTo(-80, -70);
+    ctx.bezierCurveTo(0, -100, 80, -70, 80, 0);
+    ctx.bezierCurveTo(80, 80, 0, 110, 0, 110);
+    ctx.bezierCurveTo(0, 110, -80, 80, -80, 0);
+    ctx.bezierCurveTo(-80, -70, -80, -70, -80, -70);
+    ctx.fillStyle = 'rgba(252, 165, 165, 0.15)';
+    ctx.fill();
+    ctx.strokeStyle = COLOR_HEART;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // 腔室形变计算
+    var scaleAtrium = (state.phase === 'atrial') ? 0.85 : 1.05; // 心房收缩变小
+    var scaleVentricle = (state.phase === 'ventricular') ? 0.75 : 1.05; // 心室收缩极度变小
+
+    function drawChamber(name, coords, color, scaleMod) {
+      ctx.beginPath();
+      ctx.ellipse(coords.x, coords.y, (coords.w/2)*scaleMod, (coords.h/2)*scaleMod, 0, 0, TAU);
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      if (showLabel) {
+        ctx.fillStyle = '#334155';
+        ctx.font = 'bold 14px "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(name, coords.x, coords.y);
+      }
+      
+      if (activeSelection === name) {
+        ctx.strokeStyle = App.getTheme().ray3;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
+    }
+
+    // 绘制腔室 (动态缩放)
+    drawChamber('RA', layout.RA, COLOR_DEOXY, scaleAtrium); 
+    drawChamber('RV', layout.RV, COLOR_DEOXY, scaleVentricle); 
+    drawChamber('LA', layout.LA, COLOR_OXY, scaleAtrium);   
+    drawChamber('LV', layout.LV, COLOR_OXY, scaleVentricle);   
+
+    // 绘制瓣膜
+    if (showValve) {
+      // 房室瓣：收缩时关闭(ventricular)，舒张和心房收缩时打开
+      var avOpen = (state.phase !== 'ventricular'); 
+      // 动脉瓣：只有心室收缩时打开
+      var slOpen = (state.phase === 'ventricular');
+
+      function drawValve(x, y, isOpen, isArt) {
+        ctx.fillStyle = isOpen ? '#cbd5e1' : '#ef4444'; // 关闭时红色警告
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1.5;
+        
+        ctx.beginPath();
+        if (isArt) {
+          // 动脉瓣 (画成两个倒三角形)
+          if (isOpen) {
+            ctx.moveTo(x-15, y); ctx.lineTo(x-25, y-10); ctx.lineTo(x-5, y-5);
+            ctx.moveTo(x+15, y); ctx.lineTo(x+25, y-10); ctx.lineTo(x+5, y-5);
+          } else {
+            ctx.moveTo(x-20, y); ctx.lineTo(x+20, y); ctx.lineTo(x, y-8);
+          }
+        } else {
+          // 房室瓣 (画成两个向下打开的叶片)
+          if (isOpen) {
+            ctx.moveTo(x-20, y); ctx.lineTo(x-30, y+15); ctx.lineTo(x-10, y+5);
+            ctx.moveTo(x+20, y); ctx.lineTo(x+30, y+15); ctx.lineTo(x+10, y+5);
+          } else {
+            ctx.moveTo(x-25, y); ctx.lineTo(x+25, y); ctx.lineTo(x, y+8);
+          }
+        }
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 三尖瓣 (RA-RV)
+      drawValve(-35, 15, avOpen, false);
+      // 二尖瓣 (LA-LV)
+      drawValve(35, 15, avOpen, false);
+      
+      // 肺动脉瓣 (RV-PA)
+      drawValve(-35, 75, slOpen, true);
+      // 主动脉瓣 (LV-Aorta)
+      drawValve(35, 75, slOpen, true);
+    }
+
+    ctx.restore();
+  }
+
+  function drawLung() {
+    var lCenter = w2s(layout.lungX, layout.lungY);
+    ctx.save();
+    ctx.translate(lCenter[0], lCenter[1]);
+    ctx.scale(view.scale, view.scale);
+
+    ctx.beginPath();
+    ctx.ellipse(-30, 0, 40, 65, Math.PI/6, 0, TAU);
+    ctx.ellipse(30, 0, 40, 65, -Math.PI/6, 0, TAU);
+    ctx.fillStyle = 'rgba(252, 165, 165, 0.2)';
+    ctx.fill();
+    ctx.strokeStyle = '#fca5a5';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (showLabel) {
+      ctx.fillStyle = '#475569';
+      ctx.font = 'bold 14px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('肺部', 0, -85);
+    }
+    
+    if (activeSelection === 'Lung') {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawBody() {
+    var bCenter = w2s(layout.bodyX, layout.bodyY);
+    ctx.save();
+    ctx.translate(bCenter[0], bCenter[1]);
+    ctx.scale(view.scale, view.scale);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 55, 0, TAU);
+    ctx.fillStyle = 'rgba(252, 211, 77, 0.2)';
+    ctx.fill();
+    ctx.strokeStyle = '#fcd34d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(252, 211, 77, 0.5)';
+    for(var i=0; i<6; i++) {
+      ctx.beginPath();
+      ctx.arc(Math.sin(i*2.5)*30, Math.cos(i*4.1)*30, 12, 0, TAU);
+      ctx.fill();
+    }
+
+    if (showLabel) {
+      ctx.fillStyle = '#475569';
+      ctx.font = 'bold 14px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('全身组织', 0, 80);
+    }
+
+    if (activeSelection === 'Body') {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    // 绘制血管背景
+    drawPath(paths.venaCava, COLOR_VESSEL_DEOXY, 'rgba(59, 130, 246, 0.5)', 16);
+    drawPath(paths.pulmonaryArtery, COLOR_VESSEL_DEOXY, 'rgba(59, 130, 246, 0.5)', 14);
+    drawPath(paths.pulmonaryVein, COLOR_VESSEL_OXY, 'rgba(239, 68, 68, 0.5)', 14);
+    drawPath(paths.aorta, COLOR_VESSEL_OXY, 'rgba(239, 68, 68, 0.5)', 16);
+    
+    // 内部短路径
+    drawPath(paths.rightVentricle, COLOR_VESSEL_DEOXY, null, 20);
+    drawPath(paths.leftVentricle, COLOR_VESSEL_OXY, null, 20);
+
+    // 标签
+    if (showLabel) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = '12px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      
+      var vcMid = w2s(100, 135);
+      ctx.fillText('上/下腔静脉', vcMid[0], vcMid[1] + 25);
+      var paMid = w2s(-90, -15);
+      ctx.fillText('肺动脉', paMid[0], paMid[1] - 18);
+      var pvMid = w2s(-70, -130);
+      ctx.fillText('肺静脉', pvMid[0], pvMid[1] - 18);
+      var aoMid = w2s(110, 60);
+      ctx.fillText('主动脉', aoMid[0] + 35, aoMid[1]);
+    }
+
+    drawLung();
+    drawBody();
+    drawHeart();
+
+    // 绘制粒子
+    if (showFlow) {
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        var path = paths[p.pathKey];
+        if (!path) continue;
+        
+        var pt = getPointOnPath(path, p.progress);
+        var sp = w2s(pt.x, pt.y);
+        
+        var prevT = Math.max(0, p.progress - 0.06);
+        var prevPt = getPointOnPath(path, prevT);
+        var prevSp = w2s(prevPt.x, prevPt.y);
+
+        // 拖尾
+        ctx.beginPath();
+        ctx.moveTo(prevSp[0], prevSp[1]);
+        ctx.lineTo(sp[0], sp[1]);
+        ctx.strokeStyle = p.oxy ? 'rgba(239, 68, 68, 0.6)' : 'rgba(59, 130, 246, 0.6)';
+        ctx.lineWidth = 6 * view.scale;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // 粒子主体
+        ctx.beginPath();
+        ctx.arc(sp[0], sp[1], 6 * view.scale, 0, TAU);
+        ctx.fillStyle = p.oxy ? COLOR_OXY : COLOR_DEOXY;
+        ctx.shadowColor = p.oxy ? 'rgba(239, 68, 68, 0.8)' : 'rgba(59, 130, 246, 0.8)';
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // 当前状态文字
+    var state = getHeartState();
+    var text = "";
+    if (state.phase === 'atrial') text = "心房收缩 (泵血入心室)";
+    else if (state.phase === 'ventricular') text = "心室收缩 (泵血入动脉)";
+    else text = "全心舒张 (血液回心)";
+    
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 16px "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, cssW / 2, 40);
+
+    // 循环高亮
+    if (activeSelection === 'systemic') {
+      ctx.strokeStyle = App.getTheme().ray2;
+      ctx.lineWidth = 5;
+      ctx.setLineDash([10, 8]);
+      var p1 = w2s(35, 45);
+      var p2 = w2s(220, 150);
+      var p3 = w2s(-35, -15);
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.quadraticCurveTo(p2[0], p2[1], p3[0], p3[1]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (activeSelection === 'pulmonary') {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 5;
+      ctx.setLineDash([10, 8]);
+      var p1 = w2s(-35, 45);
+      var p2 = w2s(-220, -80);
+      var p3 = w2s(35, -15);
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.quadraticCurveTo(p2[0], p2[1], p3[0], p3[1]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  var INFO = {
+    RA: { title: '右心房', desc: '接收来自全身的缺氧血（静脉血）。' },
+    RV: { title: '右心室', desc: '将缺氧血泵入肺动脉，送往肺部进行气体交换（肺循环的起点）。' },
+    LA: { title: '左心房', desc: '接收来自肺部富含氧气的血液（动脉血）。' },
+    LV: { title: '左心室', desc: '心脏最厚实的腔室，将富氧血泵入主动脉，送往全身（体循环的起点）。' },
+    Lung: { title: '肺部毛细血管', desc: '血液在此释放二氧化碳，吸收氧气。血液由暗蓝色的静脉血变为鲜红色的动脉血。' },
+    Body: { title: '全身毛细血管', desc: '血液在此把氧气和营养物质交给组织细胞，同时带走二氧化碳。血液由鲜红变为暗蓝色。' },
+    systemic: { title: '体循环路径', desc: '左心室 → 主动脉 → 各级动脉 → 全身毛细血管 → 各级静脉 → 上下腔静脉 → 右心房。' },
+    pulmonary: { title: '肺循环路径', desc: '右心室 → 肺动脉 → 肺部毛细血管 → 肺静脉 → 左心房。' }
+  };
+
+  function showInfo(key) {
+    var el = document.getElementById('readout');
+    var info = INFO[key];
+    if (info) {
+      el.innerHTML = '<b>' + info.title + '</b><br>' + info.desc;
+    } else {
+      el.innerHTML = '点击画布中的心脏腔室或器官<br>可以查看详细说明';
+    }
+  }
+
+  function hitTest(px, py) {
+    var hCenter = w2s(layout.heartX, layout.heartY);
+    var dx = px - hCenter[0];
+    var dy = py - hCenter[1];
+    
+    var chambers = [
+      { id: 'RA', x: -35, y: -15, r: 28 },
+      { id: 'RV', x: -35, y: 45, r: 35 },
+      { id: 'LA', x: 35, y: -15, r: 28 },
+      { id: 'LV', x: 35, y: 45, r: 35 }
+    ];
+    
+    for (var i = 0; i < chambers.length; i++) {
+      var c = chambers[i];
+      var cx = c.x * view.scale;
+      var cy = c.y * view.scale;
+      if (Math.hypot(dx - cx, dy - cy) < c.r * view.scale) {
+        return c.id;
+      }
+    }
+
+    var lCenter = w2s(layout.lungX, layout.lungY);
+    if (Math.hypot(px - lCenter[0], py - lCenter[1]) < 75 * view.scale) return 'Lung';
+
+    var bCenter = w2s(layout.bodyX, layout.bodyY);
+    if (Math.hypot(px - bCenter[0], py - bCenter[1]) < 60 * view.scale) return 'Body';
+
+    return null;
+  }
+
+  var trs = document.querySelectorAll('#caseTable tbody tr');
+  for (var ti = 0; ti < trs.length; ti++) {
+    (function(tr) {
+      tr.addEventListener('click', function() {
+        var id = tr.getAttribute('data-id');
+        activeSelection = id;
+        showInfo(id);
+        
+        for(var i=0; i<trs.length; i++) trs[i].classList.remove('active');
+        tr.classList.add('active');
+      });
+    })(trs[ti]);
+  }
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.4, Math.min(3.0, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var hit = hitTest(px, py);
+      activeSelection = hit;
+      
+      if (hit) {
+        showInfo(hit);
+        for(var i=0; i<trs.length; i++) {
+          trs[i].classList.toggle('active', trs[i].getAttribute('data-id') === hit);
+        }
+      } else {
+        showInfo(null);
+        for(var i=0; i<trs.length; i++) trs[i].classList.remove('active');
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  document.getElementById('bpmRange').addEventListener('input', function(e) {
+    bpm = parseInt(e.target.value, 10);
+    document.getElementById('bpmVal').textContent = bpm;
+  });
+
+  document.getElementById('labelToggle').addEventListener('change', function(e) { showLabel = e.target.checked; });
+  document.getElementById('valveToggle').addEventListener('change', function(e) { showValve = e.target.checked; });
+  document.getElementById('flowToggle').addEventListener('change', function(e) { showFlow = e.target.checked; });
+
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function() {
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    bpm = 75;
+    playing = true;
+    document.getElementById('bpmRange').value = 75;
+    document.getElementById('bpmVal').textContent = '75';
+    playBtn.textContent = '⏸ 暂停';
+    activeSelection = null;
+    for(var i=0; i<trs.length; i++) trs[i].classList.remove('active');
+    showInfo(null);
+    
+    view.cx = 0; view.cy = 30; view.scale = 1;
+    targetView.cx = 0; targetView.cy = 30; targetView.scale = 1;
+    initParticles();
+  });
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+
+    if (playing) {
+      beatPhase += dt * (bpm / 60);
+    }
+    
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 30;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    updateParticles(dt);
+    draw();
+  }
+
+  resize();
+  view.cx = 0; view.cy = 30; view.scale = 1;
+  targetView.cx = 0; targetView.cy = 30; targetView.scale = 1;
+  
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
