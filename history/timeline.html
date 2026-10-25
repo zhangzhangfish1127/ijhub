@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>中国历史时间轴 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .case-table { cursor: pointer; }
+  .case-table tr:hover td { background-color: #f1f5f9; }
+  .nav-hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>中国历史时间轴</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>时期</th><th>时间跨度</th></tr></thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>视图缩放 = <span id="zoomVal">1.0</span> ×
+    <input type="range" id="zoomRange" min="0.2" max="2.0" value="1" step="0.1">
+  </label>
+
+  <div class="row"><input type="checkbox" id="lineToggle" checked><label for="lineToggle" style="margin:0">显示辅助连线</label></div>
+
+  <button id="resetBtn" class="secondary">↺ 重置视角</button>
+
+  <div class="readout" id="readout">
+    点击朝代向右展开分支<br>
+    点击年份/皇帝展开大事记<br>
+    点击空白处返回上一级
+  </div>
+  <div class="nav-hint">💡 支持双指缩放与拖拽平移</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+  var showLine = true;
+
+  var activeL1 = null;
+  var activeL2s = {}; 
+
+  // =============== 海量数据 ===============
+  var DATA = [
+    { id: 'pre', name: '史前时代', time: '约170万年前-前2070年', branches: [
+      { name: '旧石器时代', events: [
+        { title: '元谋人', desc: '距今约170万年，发现于云南元谋。会制作打制石器，知道使用火，是我国境内目前已知最早的古人类。' },
+        { title: '北京人', desc: '距今约70万至20万年，发现于北京周口店。手脚分工明显，会使用天然火并长时间保存火种，是人类进化史上的里程碑。' },
+        { title: '山顶洞人', desc: '距今约3万年。模样与现代人基本相同，掌握磨光和钻孔技术，会人工取火，有爱美意识，过着氏族公社生活。' }
+      ]},
+      { name: '新石器时代', events: [
+        { title: '仰韶文化', desc: '距今约7000-5000年，黄河流域。以彩陶为特色，主要种植粟，半坡遗址是典型代表，房屋多为半地穴式。' },
+        { title: '河姆渡文化', desc: '距今约7000年，长江流域。发现了大量人工栽培水稻的遗迹，证明中国是世界上最早栽培水稻的国家之一。' },
+        { title: '良渚古城', desc: '距今约5300-4300年，长江下游。拥有庞大的水利系统和阶级分化明显的墓葬，实证中华五千年文明史。' }
+      ]},
+      { name: '传说时代', events: [
+        { title: '炎黄二帝', desc: '四五千年前，黄河流域的炎帝和黄帝部落结成联盟，在涿鹿之战中打败蚩尤，逐渐形成华夏族，被视为华夏初祖。' },
+        { title: '尧舜禅让', desc: '尧、舜、禹时期，实行禅让制，将首领位置传给贤德之人，是原始社会末期部落联盟推举首领的方式。' },
+        { title: '大禹治水', desc: '大禹采用疏导的方法治理黄河水患，历经十三年，三过家门而不入，最终成功治水，威望大增，为夏朝建立奠定基础。' }
+      ]}
+    ]},
+    { id: 'xia', name: '夏朝', time: '约前2070-前1600年', branches: [
+      { name: '夏朝兴衰', events: [
+        { title: '大禹建夏', desc: '公元前2070年，禹建立夏朝，定都阳城，这是我国历史上第一个王朝，标志着中国早期国家的产生。' },
+        { title: '启继禹位', desc: '禹死后，其子启继承王位，世袭制代替了禅让制，“公天下”变成了“家天下”，确立了王位在一家一姓中传承的制度。' },
+        { title: '太康失国', desc: '启的儿子太康耽于游乐，不理政事，被后羿夺取政权，史称“太康失国”，夏朝统治一度中断。' },
+        { title: '少康中兴', desc: '少康联合各部落，消灭了篡夺政权的寒浞，恢复夏朝统治。夏朝在少康时期国力强盛，史称“少康中兴”。' },
+        { title: '夏桀亡国', desc: '夏朝最后一位君主桀残暴无道，滥用民力。商汤起兵伐夏，在鸣条之战中击败夏军，夏朝灭亡。' }
+      ]}
+    ]},
+    { id: 'shang', name: '商朝', time: '约前1600-前1046年', branches: [
+      { name: '商朝兴衰', events: [
+        { title: '商汤灭夏', desc: '约公元前1600年，商汤在鸣条之战中打败夏桀，建立商朝，定都亳。商朝前期因水患多次迁都。' },
+        { title: '盘庚迁殷', desc: '商王盘庚将都城迁到殷（今河南安阳），此后商朝统治稳定下来。商朝是当时世界上最大的国家之一。' },
+        { title: '武丁盛世', desc: '商王武丁任用贤才，对外征伐，使商朝国力达到鼎盛。商朝的疆域和影响力大幅扩展，史称“武丁盛世”。' },
+        { title: '甲骨文', desc: '商朝人将占卜内容刻在龟甲和兽骨上，形成了甲骨文。我国有文字可考的历史从商朝开始，这是中华文明的瑰宝。' },
+        { title: '武王伐纣', desc: '商纣王暴政，公元前1046年，周武王联合各方势力，在牧野之战中大败商军，纣王自焚，商朝灭亡。' }
+      ]}
+    ]},
+    { id: 'zhou', name: '周朝', time: '前1046-前256年', branches: [
+      { name: '西周（前1046-前771）', events: [
+        { title: '武王分封', desc: '周武王建立周朝，实行分封制，将土地和人民分给宗亲功臣，以巩固统治。同时确立了以嫡长子继承制为核心的宗法制。' },
+        { title: '成康之治', desc: '周成王、周康王时期，天下安定，经济繁荣，史称“成康之治”。《史记》记载“刑错四十余年不用”。' },
+        { title: '国人暴动', desc: '周厉王垄断山林之利，暴虐无道，引发国人暴动。周厉王出逃，朝政由周定公和召穆公共同执掌，史称“共和行政”。' },
+        { title: '宣王中兴', desc: '周宣王即位后，对内修明政事，对外讨伐夷狄，使周朝国力一度恢复，史称“宣王中兴”。' },
+        { title: '幽王烽火', desc: '周幽王为博褒姒一笑，烽火戏诸侯。公元前771年，犬戎攻破镐京，西周灭亡，周平王东迁洛邑，开启东周。' }
+      ]},
+      { name: '东周（前770-前256）', events: [
+        { title: '平王东迁', desc: '公元前770年，周平王将国都从镐京迁至洛邑。东周开始，周王室衰微，诸侯势力崛起，历史进入春秋战国时期。' },
+        { title: '齐桓公称霸', desc: '齐桓公任用管仲改革，打出“尊王攘夷”旗号，在葵丘会盟诸侯，成为春秋时期第一个霸主。' },
+        { title: '晋文公称霸', desc: '晋文公在城濮之战中退避三舍，大败楚军，随后在践土会盟诸侯，成为中原霸主。' },
+        { title: '楚庄王问鼎', desc: '楚庄王北伐，陈兵于洛水，向周定王询问周朝九鼎的大小轻重，意欲取而代之。后大败晋国，成为霸主。' },
+        { title: '吴越争霸', desc: '春秋末期，吴王阖闾和越王勾践争霸。勾践战败后卧薪尝胆，最终灭吴，成为春秋最后一位霸主。' },
+        { title: '三家分晋', desc: '公元前403年，晋国被韩、赵、魏三家瓜分，周天子正式册封三家为诸侯。这标志着战国时期的开始。' },
+        { title: '商鞅变法', desc: '秦孝公任用商鞅变法，推行县制，废除井田制，奖励耕战。秦国实力大增，为统一六国奠定基础。' },
+        { title: '桂陵之战', desc: '魏国围攻赵国，齐国派孙膑救援。孙膑采用“围魏救赵”之计，在桂陵大败魏军，生擒庞涓。' },
+        { title: '马陵之战', desc: '魏国攻韩，齐国再次派孙膑救援。孙膑用“减灶计”诱敌深入，在马陵大败魏军，庞涓自杀。' },
+        { title: '合纵连横', desc: '战国中后期，苏秦游说六国联合抗秦（合纵）；张仪为秦国破坏联盟，拉拢诸侯（连横）。这是战国时期著名的外交斗争。' },
+        { title: '长平之战', desc: '公元前260年，秦赵两国在长平决战。赵括“纸上谈兵”，被秦将白起大败，赵国四十万降卒被坑杀。' },
+        { title: '百家争鸣', desc: '春秋战国时期，社会急剧变化。儒家、道家、法家、墨家等学派纷纷著书立说，形成了中国历史上第一次思想文化高峰。' }
+      ]}
+    ]},
+    { id: 'qin', name: '秦朝', time: '前221-前207年', branches: [
+      { name: '大秦帝国', events: [
+        { title: '秦灭六国', desc: '公元前230年至前221年，秦王嬴政先后灭韩赵魏楚燕齐，建立中国历史上第一个统一的多民族封建国家。' },
+        { title: '始皇建制', desc: '嬴政自称“始皇帝”。中央设丞相、太尉、御史大夫；地方推行郡县制，长官由朝廷任免，开创了中央集权制度。' },
+        { title: '统一标准', desc: '统一文字为小篆，统一货币为圆形方孔半两钱，统一度量衡，统一车轨。促进了各地的经济文化交流。' },
+        { title: '焚书坑儒', desc: '为加强思想控制，秦始皇下令销毁民间收藏的诸子百家著作，并坑杀方士儒生四百多人，钳制了思想。' },
+        { title: '秦末起义', desc: '秦的暴政引发陈胜吴广起义（大泽乡起义）。随后项羽在巨鹿之战破釜沉舟大败秦军，刘邦攻入咸阳，秦朝灭亡。' }
+      ]}
+    ]},
+    { id: 'han', name: '汉朝', time: '前202-220年', branches: [
+      { name: '西汉（前202-9）', events: [
+        { title: '楚汉之争', desc: '秦亡后，刘邦与项羽争夺帝位。刘邦约法三章，善用人才，最终在垓下之战击败项羽，建立汉朝，定都长安。' },
+        { title: '汉初休养', desc: '汉初经济萧条，统治者实行休养生息政策。轻徭薄赋，注重农业生产，提倡以农为本。' },
+        { title: '文景之治', desc: '汉文帝、景帝时期，提倡勤俭治国，政治清明，经济发展，人民生活安定。国家粮仓丰满，史称“文景之治”。' },
+        { title: '武帝推恩', desc: '汉武帝采纳主父偃建议，颁布“推恩令”，允许诸侯王将封地分给子弟，从而削弱诸侯王势力，加强中央集权。' },
+        { title: '罢黜百家', desc: '汉武帝接受董仲舒建议，“罢黜百家，尊崇儒术”。在长安兴办太学，把儒家学说立为正统思想。' },
+        { title: '张骞通西域', desc: '汉武帝派张骞两次出使西域，开辟了丝绸之路。这是一条连接中外的交通大动脉，促进了东西方经济文化交流。' },
+        { title: '击破匈奴', desc: '汉武帝派卫青、霍去病多次出击匈奴。霍去病“封狼居胥”，大破匈奴主力，保障了北方边境的安全。' },
+        { title: '昭君出塞', desc: '汉元帝时，王昭君远嫁匈奴呼韩邪单于。此后匈奴与汉朝保持了较长时期的和平，促进了民族交融。' }
+      ]},
+      { name: '东汉（25-220）', events: [
+        { title: '光武中兴', desc: '刘秀建立东汉，定都洛阳。光武帝多次下令释放奴婢，减轻赋税，整顿吏治，社会安定，经济恢复。' },
+        { title: '蔡伦造纸', desc: '东汉蔡伦改进造纸术，用树皮、麻头等原料造纸，降低了成本，提高了质量，是中国对世界文明的伟大贡献。' },
+        { title: '黄巾起义', desc: '东汉末年，外戚宦官交替专权，政治腐败。张角发动黄巾起义，沉重打击了东汉统治，导致军阀割据局面形成。' }
+      ]}
+    ]},
+    { id: 'sanguo', name: '三国两晋', time: '220-420年', branches: [
+      { name: '三国（220-280）', events: [
+        { title: '官渡之战', desc: '公元200年，曹操与袁绍决战。曹操采用声东击西之计，奇袭乌巢，以少胜多击败袁绍，为统一北方奠定基础。' },
+        { title: '赤壁之战', desc: '公元208年，孙刘联军在赤壁利用火攻大败曹军。这场战役奠定了三国鼎立的基础。' },
+        { title: '曹丕建魏', desc: '公元220年，曹丕废汉献帝，自立为帝，国号魏，定都洛阳。东汉灭亡。' },
+        { title: '刘备建蜀', desc: '公元221年，刘备在成都称帝，国号汉，史称蜀汉。随后在夷陵之战中被东吴陆逊大败，退守白帝城。' },
+        { title: '孙权建吴', desc: '公元229年，孙权在建业称帝，国号吴。三国鼎立局面正式形成。' },
+        { title: '司马炎篡魏', desc: '公元263年魏灭蜀。265年，司马炎篡夺魏国政权，建立西晋。280年西晋灭吴，统一全国。' }
+      ]},
+      { name: '两晋（265-420）', events: [
+        { title: '八王之乱', desc: '西晋晋惠帝时，诸侯王为争夺中央政权，爆发长达16年的内乱，史称“八王之乱”，西晋国力大衰。' },
+        { title: '五胡内迁', desc: '东汉以来，匈奴、鲜卑、羯、氐、羌等少数民族陆续内迁。西晋末年，内迁民族起兵反晋，316年西晋灭亡。' },
+        { title: '东晋建立', desc: '317年，司马睿在建康称帝，建立东晋。东晋偏安江南，北方则进入十六国时期，战乱频繁。' },
+        { title: '淝水之战', desc: '383年，前秦苻坚率大军南下企图灭东晋。东晋在淝水之战中以少胜多，大败前秦，前秦随后瓦解。' },
+        { title: '江南开发', desc: '东晋南朝时期，北方人口大量南迁，带来了劳动力和先进技术。江南地区得到开发，为经济重心南移奠定基础。' },
+        { title: '北魏孝文帝', desc: '北魏孝文帝迁都洛阳，推行汉化改革（穿汉服、说汉语、改汉姓等），促进了民族交融。' }
+      ]}
+    ]},
+    { id: 'sui', name: '隋朝', time: '581-618年', branches: [
+      { name: '大隋王朝', events: [
+        { title: '隋朝统一', desc: '581年杨坚建立隋朝，589年隋军灭陈，结束了魏晋南北朝长达数百年的分裂局面，实现了全国统一。' },
+        { title: '开皇之治', desc: '隋文帝发展经济，编订户籍，统一南北币制和度量衡。在中央确立三省六部制，政治清明，国力强盛。' },
+        { title: '开皇之治', desc: '隋文帝励精图治，轻徭薄赋，提倡节俭。社会安定，经济繁荣，人口激增，史称“开皇之治”。' },
+        { title: '开凿大运河', desc: '隋炀帝下令开凿大运河。以洛阳为中心，北达涿郡，南至余杭，加强了南北经济文化交流，但也加重了人民负担。' },
+        { title: '创立科举制', desc: '隋文帝废除九品中正制，初步建立考试选拔人才制度。隋炀帝创立进士科，标志着科举制正式诞生。' }
+      ]}
+    ]},
+    { id: 'tang', name: '唐朝', time: '618-907年', branches: [
+      { name: '初唐至盛唐', events: [
+        { title: '李渊建唐', desc: '618年李渊在长安称帝，建立唐朝。随后逐步消灭各地割据势力，统一全国。' },
+        { title: '玄武门之变', desc: '626年，李世民在玄武门设伏，杀死太子李建成和齐王李元吉，逼迫李渊退位，李世民即位，是为唐太宗。' },
+        { title: '贞观之治', desc: '唐太宗虚心纳谏，重用魏征、房玄龄。完善三省六部制和科举制，轻徭薄赋，开创了“贞观之治”的盛世局面。' },
+        { title: '玄奘西行', desc: '唐太宗时，高僧玄奘西行天竺（今印度）取经，带回大量佛经。他口述的《大唐西域记》是研究中亚、印度历史的重要资料。' },
+        { title: '文成公主', desc: '唐太宗将文成公主嫁给吐蕃赞普松赞干布。唐蕃和亲促进了吐蕃经济和社会的发展，增进了汉藏两族友谊。' },
+        { title: '永徽之治', desc: '唐高宗李治即位后，继承太宗遗训，勤于政事，社会经济持续发展，史称“永徽之治”。' },
+        { title: '武则天称帝', desc: '武则天废唐睿宗，改国号为周，是中国历史上唯一的女皇帝。她大力发展科举，创立殿试，社会经济持续发展。' },
+        { title: '开元盛世', desc: '唐玄宗即位后，任用姚崇、宋璟为相，整顿吏治，发展经济。唐朝进入全盛时期，史称“开元盛世”。' },
+        { title: '鉴真东渡', desc: '唐玄宗时，高僧鉴真六次东渡日本，最终到达。他在日本传授佛经、医药、建筑等，为中日文化交流做出巨大贡献。' },
+        { title: '怛罗斯之战', desc: '751年，唐朝安西节度使高仙芝与大食（阿拉伯帝国）在怛罗斯交战，唐军战败。造纸术由此传入阿拉伯，进而传向欧洲。' }
+      ]},
+      { name: '中晚唐', events: [
+        { title: '安史之乱', desc: '755年，安禄山、史思明发动叛乱。战乱持续八年，对社会经济造成极大破坏，唐朝国势由盛转衰。' },
+        { title: '马嵬驿之变', desc: '安史之乱中，唐玄宗逃往四川，途经马嵬驿时，禁军哗变，杀死杨国忠，逼迫唐玄宗赐死杨贵妃。' },
+        { title: '藩镇割据', desc: '安史之乱后，唐朝中央集权大大削弱。各地节度使拥兵自重，不服从中央，形成了长期的藩镇割据局面。' },
+        { title: '两税法', desc: '唐德宗时，宰相杨炎推行两税法。按资产和田亩征税，分夏秋两次交纳。改变了自战国以来以人丁为主的赋税制度。' },
+        { title: '甘露之变', desc: '唐文宗不甘心被宦官控制，与大臣李训、郑注密谋诛杀宦官，事败，大批朝臣被杀，史称“甘露之变”。此后宦官更加专权。' },
+        { title: '牛李党争', desc: '唐朝后期，以牛僧孺为首的牛党和以李德裕为首的李党，进行了长达近四十年的朋党之争，加速了唐朝的衰亡。' },
+        { title: '黄巢起义', desc: '唐朝末年，黄巢领导农民起义，转战大半个中国，攻入长安，建立大齐政权。沉重打击了唐朝的腐朽统治。' },
+        { title: '朱温篡唐', desc: '907年，节度使朱温废唐哀帝，建立后梁，定都开封。唐朝灭亡，中国历史进入五代十国时期。' },
+        { title: '五代十国', desc: '唐朝灭亡后，北方相继出现后梁、后唐、后晋、后汉、后周五个政权，南方及山西等地存在十个割据政权，史称“五代十国”。' }
+      ]}
+    ]},
+    { id: 'song', name: '宋朝', time: '960-1279年', branches: [
+      { name: '北宋（960-1127）', events: [
+        { title: '陈桥兵变', desc: '960年，赵匡胤在陈桥驿发动兵变，建立宋朝，定都东京（开封），史称北宋。' },
+        { title: '杯酒释兵权', desc: '宋太祖为防止武将专权，设酒宴劝说石守信等大将交出兵权，回乡养老。随后实行重文轻武政策。' },
+        { title: '交子出现', desc: '北宋前期，四川地区出现了世界上最早的纸币“交子”。反映了当时商品经济的繁荣。' },
+        { title: '澶渊之盟', desc: '1004年，辽军南下，宋真宗在寇准力劝下亲征，宋军获胜。双方议和，宋每年给辽岁币，保持了长期和平。' },
+        { title: '活字印刷', desc: '北宋匠人毕昇发明了活字印刷术，用胶泥刻字排版。大大提高了印刷效率，对世界文明产生深远影响。' },
+        { title: '指南针航海', desc: '北宋时期，指南针开始应用于航海事业。促进了远洋航行的发展，后传入欧洲，为地理大发现提供条件。' },
+        { title: '庆历新政', desc: '宋仁宗时，范仲淹主持庆历新政，主张整顿吏治，但触犯了官僚利益，仅推行一年多就失败了。' },
+        { title: '王安石变法', desc: '宋神宗时，王安石推行募役法、方田均税法等。意在富国强兵，但用人不当且触犯大地主利益，最终失败。' },
+        { title: '乌台诗案', desc: '苏轼因反对王安石变法，被诬陷作诗讽刺朝政，被捕入狱，险些丧命。这是北宋著名的文字狱。' },
+        { title: '靖康之变', desc: '1127年，金军南下攻破开封，掳走宋徽宗、宋钦宗及大量财物，北宋灭亡，史称“靖康之耻”。' }
+      ]},
+      { name: '南宋（1127-1279）', events: [
+        { title: '南宋建立', desc: '1127年，赵构在应天府称帝，后定都临安（杭州），史称南宋。南宋偏安江南，与金朝形成对峙。' },
+        { title: '岳飞抗金', desc: '岳飞率领“岳家军”北伐，在郾城大败金军主力。后被宋高宗和秦桧以“莫须有”罪名召回杀害。' },
+        { title: '绍兴和议', desc: '1141年，南宋与金达成和议。南宋向金称臣，双方以淮水、大散关为界，宋每年给金岁币。' },
+        { title: '采石之战', desc: '1161年，金主完颜亮南侵，南宋文臣虞允文在采石矶组织军队抵抗，大败金军，完颜亮被部下所杀。' },
+        { title: '隆兴北伐', desc: '宋孝宗即位后，起用主战派张浚北伐。初战告捷，后在符离被金军击败，被迫与金朝签订“隆兴和议”。' },
+        { title: '开禧北伐', desc: '宋宁宗时，韩侂胄主持北伐，但准备不足，宋军大败。史弥远发动政变杀死韩侂胄，与金朝签订“嘉定和议”。' },
+        { title: '嘉定和议', desc: '1208年签订，宋金改称伯侄之国，南宋增加岁币，并支付巨额战争赔款。南宋国力进一步衰弱。' },
+        { title: '程朱理学', desc: '南宋时期，朱熹继承发展理学，主张“存天理，灭人欲”。程朱理学逐渐成为南宋及后世封建社会的正统思想。' },
+        { title: '崖山海战', desc: '1279年，元军在崖山（今广东新会）大败南宋残军。陆秀夫背着幼帝赵昺投海殉国，南宋灭亡，元朝统一全国。' },
+        { title: '市舶司', desc: '宋朝鼓励海外贸易，在广州、泉州等地设立市舶司管理。南宋时，海外贸易收入成为国库的重要财源。' }
+      ]}
+    ]},
+    { id: 'yuan', name: '元朝', time: '1271-1368年', branches: [
+      { name: '大元王朝', events: [
+        { title: '蒙古崛起', desc: '1206年，铁木真统一蒙古草原，建立蒙古国，被尊称为成吉思汗。随后蒙古开始对外扩张。' },
+        { title: '灭西夏', desc: '1227年，蒙古军队攻灭西夏。成吉思汗在征伐西夏途中病逝。' },
+        { title: '灭金朝', desc: '1234年，蒙古联合南宋攻灭金朝。随后蒙古与南宋展开长达四十多年的战争。' },
+        { title: '忽必烈建元', desc: '1271年，忽必烈改国号为元，次年定都大都（北京）。元朝是中国历史上第一个由少数民族建立的大一统王朝。' },
+        { title: '行省制度', desc: '元朝在地方设置行中书省，简称行省。开创了我国省级行政区划的先河，加强了中央对地方的管理。' },
+        { title: '设宣政院', desc: '元朝设宣政院管理西藏地区。西藏正式成为中央直接管辖下的一个地方行政区域。' },
+        { title: '四等人制', desc: '元朝实行民族歧视政策，将全国居民分为蒙古人、色目人、汉人、南人四个等级，待遇不同。' },
+        { title: '开放贸易', desc: '元朝时期，陆上丝绸之路和海上丝绸之路都很畅通。大都成为国际大都市，泉州是最大的对外贸易港口。' },
+        { title: '马可波罗', desc: '意大利旅行家马可·波罗来到中国，受到忽必烈接见。他的游记激起了欧洲人对东方的热望。' },
+        { title: '郭守敬编历', desc: '元朝天文学家郭守敬编订《授时历》，测定的一年周期与现行公历基本相同，但比公历早颁行300年。' },
+        { title: '中统钞', desc: '元朝发行纸币“中统钞”，并在全国范围内流通。这是世界上较早由中央政府在全国推行的纯纸币制度。' },
+        { title: '驿站制度', desc: '元朝建立了四通八达的驿站网络，加强了中央与地方的联系，也促进了东西方交通的便利。' },
+        { title: '元曲兴盛', desc: '元朝时期，城市经济繁荣，元曲（杂剧和散曲）兴盛起来。关汉卿的《窦娥冤》是代表作。' },
+        { title: '黄河泛滥', desc: '元朝末年，黄河屡次决口，泛滥成灾。元政府强征民夫修河，引发了大规模的农民起义。' },
+        { title: '红巾军起义', desc: '1351年，刘福通等领导红巾军起义，沉重打击了元朝统治。朱元璋也加入了起义军。' },
+        { title: '元朝灭亡', desc: '1368年，朱元璋建立明朝，派大将徐达攻占大都。元顺帝北逃，元朝结束对全国的统治（史称北元）。' }
+      ]}
+    ]},
+    { id: 'ming', name: '明朝', time: '1368-1644年', branches: [
+      { name: '大明王朝', events: [
+        { title: '元末起义', desc: '元朝末年，社会矛盾激化。朱元璋投奔郭子兴的红巾军，凭借卓越的军事才能逐渐崭露头角。' },
+        { title: '朱元璋建明', desc: '1368年，朱元璋在应天府（南京）称帝，建立明朝。随后派军北伐，结束了元朝在全国的统治。' },
+        { title: '洪武之治', desc: '明太祖朱元璋在位期间，轻徭薄赋，恢复生产，整顿吏治。社会经济得到恢复和发展。' },
+        { title: '胡惟庸案', desc: '1380年，朱元璋以谋反罪诛杀丞相胡惟庸，并借此案牵连数万人。不久后废除丞相制度。' },
+        { title: '废除丞相', desc: '朱元璋废除中书省和丞相，权分六部，直接对皇帝负责。君主专制空前加强。' },
+        { title: '设立锦衣卫', desc: '朱元璋设立锦衣卫，作为皇帝的侍卫和特务机构，负责侦查、逮捕、审讯，加强对官员的监视。' },
+        { title: '八股取士', desc: '明朝科举考试采用“八股文”格式，内容必须在四书五经范围内，不能有个人见解，严重束缚了思想。' },
+        { title: '靖难之役', desc: '1399年，燕王朱棣以“清君侧”为名起兵反抗建文帝。1402年攻入南京，建文帝下落不明，朱棣即位，是为明成祖。' },
+        { title: '永乐盛世', desc: '明成祖朱棣时期，迁都北京，营建紫禁城。多次北征蒙古，国力强盛，史称“永乐盛世”。' },
+        { title: '郑和下西洋', desc: '1405-1433年，郑和七次下西洋，到达亚非30多个国家和地区。增进了中国与亚非国家的友好往来。' },
+        { title: '永乐大典', desc: '明成祖命解缙等人编纂《永乐大典》，汇集了古今图书七八千种，是中国古代最大的类书。' },
+        { title: '土木堡之变', desc: '1449年，明英宗在太监王振怂恿下亲征瓦剌，在土木堡被围，明军大败，英宗被俘。' },
+        { title: '北京保卫战', desc: '土木堡之变后，大臣于谦拥立明代宗，组织北京保卫战，击退瓦剌军队，使明朝转危为安。' },
+        { title: '夺门之变', desc: '1457年，石亨、徐有贞等人趁明代宗病重，拥立被幽禁的明英宗复辟，史称“夺门之变”。于谦遇害。' },
+        { title: '张居正改革', desc: '明神宗时，内阁首辅张居正推行“一条鞭法”，将田赋、徭役合并折成银两。增加了明朝财政收入。' },
+        { title: '戚继光抗倭', desc: '明朝中期，戚继光组建“戚家军”，在台州九战九捷，平定了东南沿海的倭患，是伟大的民族英雄。' },
+        { title: '李自成起义', desc: '明朝末年，陕北连年大旱，李自成起义。提出“均田免赋”口号，得到农民拥护。' },
+        { title: '明朝灭亡', desc: '1644年，李自成攻入北京，崇祯帝自缢煤山，明朝灭亡。随后吴三桂引清军入关。' }
+      ]}
+    ]},
+    { id: 'qing', name: '清朝', time: '1636-1912年', branches: [
+      { name: '清朝前期', events: [
+        { title: '后金建立', desc: '1616年，努尔哈赤统一女真各部，建立后金。创立八旗制度，兵民合一。' },
+        { title: '改国号为清', desc: '1635年，皇太极改女真族名为满洲。1636年，在盛京称帝，改国号为清。' },
+        { title: '清军入关', desc: '1644年，吴三桂引清军入关，打败李自成。清朝逐步确立了对全国的统治。' },
+        { title: '平三藩', desc: '康熙帝时，吴三桂等三藩起兵反清。康熙帝经过八年战争，平定了三藩之乱，加强了中央集权。' },
+        { title: '收复台湾', desc: '1662年，郑成功从荷兰殖民者手中收复台湾。1683年，清军进入台湾，次年设台湾府，隶属福建省。' },
+        { title: '雅克萨之战', desc: '17世纪中期，沙俄侵入黑龙江流域。康熙帝两次组织雅克萨之战，击退沙俄。1689年签订《尼布楚条约》。' },
+        { title: '多伦会盟', desc: '康熙帝在多伦与蒙古喀尔喀部会盟，确立了对喀尔喀蒙古的统治，巩固了北部边疆。' },
+        { title: '设军机处', desc: '雍正帝时设立军机处，军机大臣只能跪受笔录，完全听命于皇帝。君主专制达到顶峰。' },
+        { title: '摊丁入亩', desc: '雍正帝推行“摊丁入亩”，将丁银摊入田赋中，废除了人头税，促进了人口增长。' },
+        { title: '平定回部', desc: '乾隆帝时，平定大小和卓叛乱，设伊犁将军，加强对新疆地区的管辖。' },
+        { title: '康乾盛世', desc: '康熙、雍正、乾隆时期，社会经济高度繁荣，疆域空前巩固，史称“康乾盛世”。' },
+        { title: '马戛尔尼访华', desc: '1793年，英国使臣马戛尔尼访华，要求通商，被乾隆帝拒绝。清朝错失了了解世界的机会。' },
+        { title: '闭关锁国', desc: '清朝实行闭关锁国政策，只留广州一处通商。这使中国逐渐落伍于世界历史的发展进程。' }
+      ]},
+      { name: '近代清朝', events: [
+        { title: '鸦片战争', desc: '1840年，英国发动鸦片战争。清政府战败，被迫签订《南京条约》。中国开始沦为半殖民地半封建社会。' },
+        { title: '南京条约', desc: '割让香港岛，赔款2100万银元，开放五口通商，协定关税。是中国近代史上第一个不平等条约。' },
+        { title: '太平天国', desc: '1851年，洪秀全领导金田起义。太平天国运动席卷大半个中国，沉重打击了清朝统治和外国侵略势力。' },
+        { title: '第二次鸦片战争', desc: '1856年，英法联军发动第二次鸦片战争。1860年攻入北京，火烧圆明园。' },
+        { title: '北京条约', desc: '1860年签订，割让九龙司给英国，增开天津为商埠。中国半殖民地化程度进一步加深。' },
+        { title: '洋务运动', desc: '19世纪60-90年代，洋务派以“自强”“求富”为口号，创办军事和民用工业。是中国近代化的开端。' },
+        { title: '甲午中日战争', desc: '1894年，日本发动甲午中日战争。北洋舰队全军覆没，清政府战败。' },
+        { title: '马关条约', desc: '1895年签订，割让台湾及附属岛屿，赔款2亿两白银。大大加深了中国的半殖民地化程度。' },
+        { title: '戊戌变法', desc: '1898年，康有为、梁启超领导戊戌变法，试图建立君主立宪制。仅103天即被慈禧太后镇压。' },
+        { title: '义和团运动', desc: '19世纪末，民间爆发义和团运动，提出“扶清灭洋”口号，沉重打击了帝国主义瓜分中国的野心。' },
+        { title: '八国联军侵华', desc: '1900年，八国联军攻入北京。慈禧太后带光绪帝逃往西安。' },
+        { title: '辛丑条约', desc: '1901年签订，赔款4.5亿两，划定使馆界，严禁人民反帝。清政府沦为“洋人的朝廷”。' },
+        { title: '清末新政', desc: '20世纪初，清政府为维护统治推行新政，废除科举，编练新军，但未能挽救清朝的灭亡。' },
+        { title: '同盟会成立', desc: '1905年，孙中山在日本东京成立中国同盟会，提出“三民主义”，领导资产阶级民主革命。' },
+        { title: '辛亥革命', desc: '1911年，武昌起义爆发。随后各省纷纷独立。辛亥革命推翻了清朝统治，结束了两千多年的封建帝制。' }
+      ]}
+    ]},
+    { id: 'minguo', name: '中华民国', time: '1912-1949年', branches: [
+      { name: '北洋政府时期', events: [
+        { title: '民国建立', desc: '1912年1月1日，孙中山在南京就任临时大总统，中华民国成立。采用五色旗为国旗。' },
+        { title: '清帝退位', desc: '1912年2月12日，宣统帝溥仪下诏退位。清朝统治结束，中国两千多年的封建帝制终结。' },
+        { title: '袁世凯窃国', desc: '袁世凯逼迫清帝退位，孙中山辞去大总统，袁世凯在北京就任大总统，建立北洋军阀统治。' },
+        { title: '二次革命', desc: '1913年，宋教仁被刺，孙中山发动讨伐袁世凯的二次革命，但很快失败。' },
+        { title: '护国运动', desc: '1915年，袁世凯复辟称帝，引发全国反对。蔡锷等发动护国战争，袁世凯被迫取消帝制并死去。' },
+        { title: '张勋复辟', desc: '1917年，张勋拥戴溥仪复辟，仅12天即被段祺瑞组织的讨逆军击败。' },
+        { title: '护法运动', desc: '孙中山为维护《临时约法》，在广州发动护法运动，反对北洋军阀统治。' },
+        { title: '新文化运动', desc: '1915年兴起，陈独秀、李大钊等提倡民主与科学，反对旧道德旧文化。是一次伟大的思想解放运动。' },
+        { title: '五四运动', desc: '1919年，巴黎和会外交失败引发五四运动。标志着中国新民主主义革命的开端。' },
+        { title: '中共成立', desc: '1921年，中共一大在上海召开，中国共产党诞生。这是中国历史上开天辟地的大事变。' },
+        { title: '国共合作', desc: '1924年，国民党一大召开，标志着国共第一次合作正式建立。' },
+        { title: '黄埔军校', desc: '1924年，孙中山在广州创办黄埔军校，培养了大批军事政治人才。' }
+      ]},
+      { name: '南京国民政府时期', events: [
+        { title: '北伐战争', desc: '1926年，国民革命军誓师北伐，基本推翻了北洋军阀的统治。' },
+        { title: '四一二政变', desc: '1927年，蒋介石在上海发动反革命政变，大肆屠杀共产党员和革命群众。' },
+        { title: '南昌起义', desc: '1927年8月1日，周恩来等领导南昌起义，打响了武装反抗国民党反动派的第一枪。' },
+        { title: '井冈山道路', desc: '秋收起义后，毛泽东建立井冈山革命根据地，开辟了农村包围城市、武装夺取政权的道路。' },
+        { title: '东北易帜', desc: '1928年，张学良宣布东北易帜，服从南京国民政府，国民政府在名义上统一了全国。' },
+        { title: '九一八事变', desc: '1931年，日本关东军炸毁柳条湖铁路，发动九一八事变。东北三省沦陷。' },
+        { title: '红军长征', desc: '1934年，红军被迫战略转移，开始长征。1936年，三大主力红军在甘肃会宁会师，长征胜利结束。' },
+        { title: '遵义会议', desc: '1935年，遵义会议确立了以毛泽东为核心的党中央的正确领导，是党的历史上生死攸关的转折点。' },
+        { title: '西安事变', desc: '1936年，张学良、杨虎城扣押蒋介石，逼蒋抗日。西安事变的和平解决，揭开国共合作抗日的序幕。' },
+        { title: '七七事变', desc: '1937年，日军进攻卢沟桥，七七事变爆发。标志着中国全民族抗战的开始。' },
+        { title: '南京大屠杀', desc: '1937年12月，日军攻陷南京，进行了长达六周的大屠杀，杀害中国军民30万人以上。' },
+        { title: '台儿庄战役', desc: '1938年，李宗仁指挥中国军队在台儿庄大败日军，是抗战以来中国正面战场取得的最大胜利。' },
+        { title: '百团大战', desc: '1940年，彭德怀指挥八路军在华北发动百团大战，沉重打击了日军的侵略气焰。' },
+        { title: '日本投降', desc: '1945年8月15日，日本宣布无条件投降。中国抗日战争取得伟大胜利，台湾回到祖国怀抱。' },
+        { title: '重庆谈判', desc: '1945年，毛泽东赴重庆与蒋介石谈判，签订了《双十协定》。' },
+        { title: '三大战役', desc: '1948-1949年，解放军发动辽沈、淮海、平津三大战役，基本消灭国民党军队主力。' },
+        { title: '渡江战役', desc: '1949年，解放军发起渡江战役，占领南京，统治中国22年的国民党政权覆灭。' }
+      ]}
+    ]},
+    { id: 'prc', name: '中华人民共和国', time: '1949年-至今', branches: [
+      { name: '社会主义建设时期', events: [
+        { title: '开国大典', desc: '1949年10月1日，毛泽东宣告中华人民共和国成立。中国历史进入新纪元。' },
+        { title: '抗美援朝', desc: '1950年，中国人民志愿军入朝作战，保家卫国。1953年美国被迫签订停战协定。' },
+        { title: '土地改革', desc: '1950-1952年，新中国进行土地改革，废除封建土地所有制，农民成为土地的主人。' },
+        { title: '一五计划', desc: '1953-1957年，集中主要力量发展重工业。我国开始改变工业落后面貌。' },
+        { title: '三大改造', desc: '1956年，对农业、手工业和资本主义工商业的改造基本完成，社会主义基本制度建立。' },
+        { title: '中共八大', desc: '1956年召开，指出国内的主要矛盾是先进的社会制度同落后的社会生产力之间的矛盾。' },
+        { title: '大跃进', desc: '1958年，全国掀起“大跃进”运动，片面追求高速度，导致了严重的经济困难。' },
+        { title: '人民公社化', desc: '1958年，全国农村一哄而起办人民公社，严重损害了农民的生产积极性。' },
+        { title: '文化大革命', desc: '1966-1976年，给党、国家和各族人民带来严重灾难的内乱。' },
+        { title: '恢复联合国席位', desc: '1971年，第26届联大恢复中华人民共和国在联合国的一切合法权利。' },
+        { title: '中美建交', desc: '1972年尼克松访华，中美关系正常化。1979年中美正式建交。' }
+      ]},
+      { name: '改革开放时期', events: [
+        { title: '十一届三中全会', desc: '1978年，作出把工作中心转移到经济建设上来、实行改革开放的历史性决策。' },
+        { title: '设立经济特区', desc: '1980年，设立深圳、珠海、汕头、厦门四个经济特区，成为对外开放的窗口。' },
+        { title: '家庭联产承包', desc: '1978年，安徽凤阳小岗村率先实行分田包干到户，随后在全国推广。' },
+        { title: '香港回归', desc: '1997年7月1日，中国对香港恢复行使主权，设立香港特别行政区。' },
+        { title: '澳门回归', desc: '1999年12月20日，中国对澳门恢复行使主权，设立澳门特别行政区。' },
+        { title: '加入WTO', desc: '2001年，中国正式加入世界贸易组织，为中国经济融入世界开辟了新途径。' }
+      ]},
+      { name: '新时代时期', events: [
+        { title: '神舟五号', desc: '2003年，杨利伟乘坐神舟五号飞船升入太空，成为中国第一位进入太空的航天员。' },
+        { title: '北京奥运会', desc: '2008年，北京成功举办第29届夏季奥林匹克运动会，展示了中国的大国形象。' },
+        { title: '上海世博会', desc: '2010年，上海举办世界博览会，主题是“城市，让生活更美好”。' },
+        { title: '辽宁舰入列', desc: '2012年，中国第一艘航空母舰辽宁舰正式交付海军。' },
+        { title: '一带一路', desc: '2013年，中国提出共建“丝绸之路经济带”和“21世纪海上丝绸之路”的倡议。' },
+        { title: '中共十八大', desc: '2012年召开，中国特色社会主义进入新时代。' },
+        { title: '全面二孩', desc: '2016年，我国正式实施全面二孩政策，应对人口老龄化。' },
+        { title: '雄安新区', desc: '2017年，中共中央、国务院决定设立河北雄安新区。' },
+        { title: '中共十九大', desc: '2017年召开，确立了习近平新时代中国特色社会主义思想。' },
+        { title: '港珠澳大桥', desc: '2018年，港珠澳大桥正式通车，是世界最长的跨海大桥。' },
+        { title: '抗击新冠', desc: '2020年，中国采取果断措施抗击新冠肺炎疫情，保护了人民生命安全和身体健康。' },
+        { title: '全面小康', desc: '2021年，我国脱贫攻坚战取得全面胜利，全面建成小康社会。' },
+        { title: '中共二十大', desc: '2022年召开，擘画了全面建设社会主义现代化国家、以中国式现代化全面推进中华民族伟大复兴的宏伟蓝图。' },
+        { title: 'C919商飞', desc: '2023年，国产大型客机C919完成商业首飞，标志着中国航空工业的重大突破。' },
+        { title: '杭州亚运会', desc: '2023年，杭州成功举办第19届亚洲运动会。' }
+      ]}
+    ]}
+  ];
+
+  // 布局参数
+  var MAIN_X = 0;        // 竖直主轴所在的 X 坐标
+  var L1_W = 160, L1_H = 60;
+  var L2_W = 160, L2_H = 36;
+  var EVENT_W = 520;
+  
+  // 水平向右延伸的距离
+  var X_GAP_L2 = 300; 
+  var X_GAP_L3 = 420; 
+
+  // 初始化唯一 ID
+  for (var i = 0; i < DATA.length; i++) {
+    var d = DATA[i];
+    for (var j = 0; j < d.branches.length; j++) {
+      var b = d.branches[j];
+      b.id = d.id + '_b' + j;
+      for (var k = 0; k < b.events.length; k++) {
+        b.events[k].id = b.id + '_e' + k;
+      }
+    }
+  }
+
+  // 生成表格
+  try {
+    var tbody = document.getElementById('tableBody');
+    var html = '';
+    for (var i = 0; i < DATA.length; i++) {
+      html += '<tr data-id="' + DATA[i].id + '"><td>' + DATA[i].name + '</td><td>' + DATA[i].time + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+  } catch (e) {
+    document.getElementById('readout').innerHTML = '数据加载失败: ' + e.message;
+  }
+
+  // =============== 自动布局计算（标准树状图） ===============
+  function calculateLayout() {
+    var currentY = -300; 
+    
+    for (var i = 0; i < DATA.length; i++) {
+      var d = DATA[i];
+      d.x = MAIN_X;
+      
+      if (activeL1 === d) {
+        var startY = currentY;
+        var tempY = currentY;
+        
+        for (var j = 0; j < d.branches.length; j++) {
+          var b = d.branches[j];
+          b.x = MAIN_X + X_GAP_L2;
+          
+          var isL2Active = activeL2s[b.id];
+          if (isL2Active) {
+            var evStartY = tempY;
+            for (var k = 0; k < b.events.length; k++) {
+              var ev = b.events[k];
+              ev.x = b.x + X_GAP_L3;
+              ev.y = tempY;
+              
+              var charsPerLine = Math.floor((EVENT_W - 40) / 14); 
+              var lines = Math.ceil(ev.desc.length / charsPerLine);
+              if (lines < 1) lines = 1;
+              ev.h = 50 + lines * 24; 
+              
+              tempY += ev.h + 30; 
+            }
+            b.y = (evStartY + (tempY - 30)) / 2;
+          } else {
+            b.y = tempY;
+            tempY += L2_H + 40;
+          }
+        }
+        
+        d.y = (startY + (tempY - 40)) / 2;
+        currentY = tempY + 120; 
+      } else {
+        d.y = currentY;
+        currentY += 120;
+      }
+    }
+  }
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  // =============== 绘制 ===============
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function wrapText(text, maxWidth, lineHeight, x, y, align, color) {
+    ctx.fillStyle = color;
+    var line = '';
+    var testLine = '';
+    var lineY = y;
+    for (var n = 0; n < text.length; n++) {
+      testLine += text[n];
+      var metrics = ctx.measureText(testLine);
+      if (metrics.width > maxWidth && n > 0) {
+        var drawX = align === 'center' ? x - ctx.measureText(line).width / 2 : x;
+        ctx.fillText(line, drawX, lineY);
+        line = text[n];
+        testLine = text[n];
+        lineY += lineHeight;
+      } else {
+        line = testLine;
+      }
+    }
+    var drawX2 = align === 'center' ? x - ctx.measureText(line).width / 2 : x;
+    ctx.fillText(line, drawX2, lineY);
+    return lineY + lineHeight;
+  }
+
+  function drawBezier(sx, sy, ex, ey) {
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    var cpX = (sx + ex) / 2;
+    ctx.bezierCurveTo(cpX, sy, cpX, ey, ex, ey);
+    ctx.stroke();
+  }
+
+  function draw() {
+    var TH = App.getTheme();
+    
+    var bg = '#ffffff';
+    var cLine = '#e2e8f0';      
+    var cMain = '#94a3b8';      
+    var cL1Active = TH.ray2;    
+    var cL2Active = TH.ray3;
+    var textColor = '#334155';  
+    var subTextColor = '#64748b'; 
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    var startY = DATA[0].y - 150;
+    var endY = DATA[DATA.length-1].y + 150;
+    var sStart = w2s(MAIN_X, startY);
+    var sEnd = w2s(MAIN_X, endY);
+
+    ctx.strokeStyle = cLine;
+    ctx.lineWidth = 3 * view.scale;
+    ctx.beginPath();
+    ctx.moveTo(sStart[0], sStart[1]);
+    ctx.lineTo(sEnd[0], sEnd[1]);
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (var i = 0; i < DATA.length; i++) {
+      var d = DATA[i];
+      var isL1Active = (activeL1 === d);
+      var p = w2s(d.x, d.y);
+      var w = L1_W * view.scale;
+      var h = L1_H * view.scale;
+
+      if (p[1] < -h * 4 || p[1] > cssH + h * 4) continue;
+
+      ctx.fillStyle = isL1Active ? cL1Active : cMain;
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], 5 * view.scale, 0, TAU);
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(p[0] - w/2 - 20 * view.scale, p[1]);
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = isL1Active ? cL1Active : '#cbd5e1';
+      ctx.lineWidth = isL1Active ? 2.5 * view.scale : 1.5 * view.scale;
+      
+      ctx.shadowColor = 'rgba(0,0,0,0.05)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 2;
+      
+      roundRect(-w/2, -h/2, w, h, 8 * view.scale);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowColor = 'transparent';
+
+      ctx.font = 'bold ' + (16 * view.scale) + 'px "PingFang SC", sans-serif';
+      ctx.fillStyle = textColor;
+      ctx.fillText(d.name, 0, -6 * view.scale);
+
+      ctx.font = (12 * view.scale) + 'px "PingFang SC", sans-serif';
+      ctx.fillStyle = subTextColor;
+      ctx.fillText(d.time, 0, 14 * view.scale);
+      ctx.restore();
+
+      if (isL1Active) {
+        for (var j = 0; j < d.branches.length; j++) {
+          var b = d.branches[j];
+          var bp = w2s(b.x, b.y);
+          var isL2Active = activeL2s[b.id];
+          var bw = L2_W * view.scale;
+          var bh = L2_H * view.scale;
+
+          if (showLine) {
+            ctx.strokeStyle = isL2Active ? cL2Active : cLine;
+            ctx.lineWidth = 1.5 * view.scale;
+            drawBezier(p[0], p[1], bp[0] - bw/2, bp[1]);
+          }
+
+          ctx.save();
+          ctx.translate(bp[0], bp[1]);
+          ctx.fillStyle = isL2Active ? '#f8fafc' : '#ffffff';
+          ctx.strokeStyle = isL2Active ? cL2Active : '#cbd5e1';
+          ctx.lineWidth = isL2Active ? 1.5 * view.scale : 1 * view.scale;
+          
+          ctx.shadowColor = 'rgba(0,0,0,0.04)';
+          ctx.shadowBlur = 6;
+          ctx.shadowOffsetY = 1;
+
+          roundRect(-bw/2, -bh/2, bw, bh, 6 * view.scale);
+          ctx.fill();
+          ctx.stroke();
+          ctx.shadowColor = 'transparent';
+
+          ctx.font = (13 * view.scale) + 'px "PingFang SC", sans-serif';
+          ctx.fillStyle = textColor;
+          ctx.fillText(b.name, 0, 0);
+          ctx.restore();
+
+          if (isL2Active) {
+            for (var k = 0; k < b.events.length; k++) {
+              var ev = b.events[k];
+              var ep = w2s(ev.x, ev.y);
+              var ew = EVENT_W * view.scale;
+              var eh = ev.h * view.scale;
+
+              if (showLine) {
+                ctx.strokeStyle = cLine;
+                ctx.lineWidth = 1.5 * view.scale;
+                drawBezier(bp[0] + bw/2, bp[1], ep[0] - ew/2, ep[1]);
+              }
+
+              ctx.save();
+              ctx.translate(ep[0], ep[1]);
+              ctx.fillStyle = '#ffffff';
+              ctx.strokeStyle = '#e2e8f0';
+              ctx.lineWidth = 1 * view.scale;
+              
+              ctx.shadowColor = 'rgba(0,0,0,0.05)';
+              ctx.shadowBlur = 10;
+              ctx.shadowOffsetY = 2;
+
+              roundRect(-ew/2, -eh/2, ew, eh, 8 * view.scale);
+              ctx.fill();
+              ctx.stroke();
+              ctx.shadowColor = 'transparent';
+
+              ctx.font = 'bold ' + (16 * view.scale) + 'px "PingFang SC", sans-serif';
+              ctx.fillStyle = cL2Active;
+              ctx.textAlign = 'left';
+              ctx.fillText(ev.title, -ew/2 + 20 * view.scale, -eh/2 + 25 * view.scale);
+
+              ctx.font = (14 * view.scale) + 'px "PingFang SC", sans-serif';
+              var startTextY = -eh/2 + 60 * view.scale;
+              wrapText(ev.desc, ew - 40 * view.scale, 24 * view.scale, -ew/2 + 20 * view.scale, startTextY, 'left', '#475569');
+              
+              ctx.restore();
+            }
+          }
+        }
+      }
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // =============== 交互 ===============
+  function hitTestL1(px, py) {
+    for (var i = 0; i < DATA.length; i++) {
+      var d = DATA[i];
+      var p = w2s(d.x, d.y);
+      var w = L1_W * view.scale;
+      var h = L1_H * view.scale;
+      var cx = p[0] - w/2 - 20 * view.scale; 
+      var cy = p[1];
+      if (px >= cx - w/2 && px <= cx + w/2 && py >= cy - h/2 && py <= cy + h/2) {
+        return d;
+      }
+    }
+    return null;
+  }
+
+  function hitTestL2(px, py) {
+    if (!activeL1) return null;
+    var d = activeL1;
+    for (var j = 0; j < d.branches.length; j++) {
+      var b = d.branches[j];
+      var bp = w2s(b.x, b.y);
+      var bw = L2_W * view.scale;
+      var bh = L2_H * view.scale;
+      if (px >= bp[0] - bw/2 && px <= bp[0] + bw/2 && py >= bp[1] - bh/2 && py <= bp[1] + bh/2) {
+        return b;
+      }
+    }
+    return null;
+  }
+
+  function handleTap(px, py) {
+    var hitL2 = hitTestL2(px, py);
+    if (hitL2) {
+      activeL2s[hitL2.id] = !activeL2s[hitL2.id];
+      calculateLayout();
+      
+      if (activeL2s[hitL2.id]) {
+        targetView.cx = MAIN_X + X_GAP_L2 + 150; 
+        targetView.cy = hitL2.y; 
+      }
+      return;
+    }
+
+    var hitL1 = hitTestL1(px, py);
+    if (hitL1) {
+      if (activeL1 !== hitL1) {
+        activeL1 = hitL1;
+        activeL2s = {};
+        calculateLayout();
+        
+        targetView.cx = MAIN_X + 200;
+        targetView.cy = hitL1.y;
+        targetView.scale = Math.max(targetView.scale, 0.6);
+        document.getElementById('zoomRange').value = targetView.scale;
+        document.getElementById('zoomVal').textContent = targetView.scale.toFixed(1);
+      }
+      updateTable();
+      return;
+    }
+
+    // ★ 点击空白处处理返回层级与相机回中
+    if (Object.keys(activeL2s).length > 0) {
+      // 当前有 L2 展开，收起所有 L2，相机居中回该 L1
+      activeL2s = {};
+      calculateLayout();
+      if (activeL1) {
+        targetView.cx = MAIN_X + 200;
+        targetView.cy = activeL1.y;
+      }
+    } else if (activeL1) {
+      // 当前只有 L1 展开，收起 L1，相机居中回该 L1 位置（或主轴）
+      var prevL1 = activeL1;
+      activeL1 = null;
+      calculateLayout();
+      updateTable();
+      
+      targetView.cx = MAIN_X;
+      targetView.cy = prevL1.y;
+    }
+  }
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.2, Math.min(2.0, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+
+      document.getElementById('zoomRange').value = newScale;
+      document.getElementById('zoomVal').textContent = newScale.toFixed(1);
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      handleTap(e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  function updateTable() {
+    var rows = document.querySelectorAll('#tableBody tr');
+    var activeId = activeL1 ? activeL1.id : null;
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === activeId);
+    }
+  }
+
+  var trs = document.querySelectorAll('#tableBody tr');
+  for (var ti = 0; ti < trs.length; ti++) {
+    (function(tr) {
+      tr.addEventListener('click', function() {
+        var id = tr.getAttribute('data-id');
+        var d = DATA.find(function(x){ return x.id === id; });
+        if (d) {
+          activeL1 = d;
+          activeL2s = {};
+          calculateLayout();
+          
+          targetView.cx = MAIN_X + 200;
+          targetView.cy = d.y;
+          targetView.scale = Math.max(targetView.scale, 0.6);
+          document.getElementById('zoomRange').value = targetView.scale;
+          document.getElementById('zoomVal').textContent = targetView.scale.toFixed(1);
+          
+          updateTable();
+        }
+      });
+    })(trs[ti]);
+  }
+
+  document.getElementById('zoomRange').addEventListener('input', function(e) {
+    targetView.scale = parseFloat(e.target.value);
+    document.getElementById('zoomVal').textContent = targetView.scale.toFixed(1);
+  });
+
+  document.getElementById('lineToggle').addEventListener('change', function(e) {
+    showLine = e.target.checked;
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    targetView.cx = MAIN_X;
+    targetView.cy = DATA[0].y;
+    targetView.scale = 1;
+    activeL1 = null;
+    activeL2s = {};
+    calculateLayout();
+    document.getElementById('zoomRange').value = 1;
+    document.getElementById('zoomVal').textContent = '1.0';
+    updateTable();
+  });
+
+  function frame() {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    draw();
+  }
+
+  resize();
+  calculateLayout();
+  targetView.cx = MAIN_X;
+  targetView.cy = DATA[0].y + 50;
+  view.cx = targetView.cx;
+  view.cy = targetView.cy;
+  view.scale = targetView.scale;
+  
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
