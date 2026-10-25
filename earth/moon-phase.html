@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>月相变化与日月食 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .mode-tab {
+    padding: 8px 16px;
+    border: 1px solid #d0d5dd;
+    background: #fff;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #475569;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .mode-tab:hover { border-color: #94a3b8; }
+  .mode-tab.active {
+    background: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+    font-weight: bold;
+  }
+  .info-panel {
+    margin: 12px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 16px 20px;
+    color: #333;
+    max-height: 320px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .info-panel h3 {
+    margin: 0 0 10px;
+    color: #2c3e50;
+    font-size: 16px;
+  }
+  .info-panel p {
+    margin: 0 0 10px;
+    line-height: 1.85;
+    font-size: 13px;
+    color: #444;
+    text-indent: 2em;
+  }
+  .info-panel p:last-child { margin-bottom: 0; }
+  .info-panel .highlight { color: #d97706; font-weight: bold; }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>月相变化与日月食</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>月相</th><th>月龄（天）</th><th>日地月夹角</th></tr></thead>
+    <tbody>
+      <tr><td>新月</td><td>0</td><td>0°</td></tr>
+      <tr><td>蛾眉月</td><td>1~6</td><td>18°~108°</td></tr>
+      <tr><td>上弦月</td><td>7.4</td><td>90°</td></tr>
+      <tr><td>盈凸月</td><td>8~14</td><td>108°~171°</td></tr>
+      <tr><td>满月</td><td>14.8</td><td>180°</td></tr>
+      <tr><td>亏凸月</td><td>15~22</td><td>189°~252°</td></tr>
+      <tr><td>下弦月</td><td>22.1</td><td>270°</td></tr>
+      <tr><td>残月</td><td>23~29</td><td>288°~360°</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <div id="phaseControls">
+    <label>月龄 = <span id="ageVal">7.40</span> 天
+      <input type="range" id="ageRange" min="0" max="29.53" value="7.4" step="0.01">
+    </label>
+  </div>
+
+  <div id="eclipseControls" style="display:none;">
+    <div style="font-size:12px;color:#64748b;margin-bottom:6px;">自动循环演示中</div>
+    <label>播放速度 = <span id="eclSpeedVal">1.0</span> ×
+      <input type="range" id="eclSpeedRange" min="0.3" max="3" value="1" step="0.1">
+    </label>
+  </div>
+
+  <label>时间流速 = <span id="speedVal">1.0</span> 天/秒
+    <input type="range" id="speedRange" min="0.1" max="5" value="1" step="0.1">
+  </label>
+
+  <div class="row"><input type="checkbox" id="rayToggle" checked><label for="rayToggle" style="margin:0">显示太阳光线</label></div>
+  <div class="row"><input type="checkbox" id="orbitToggle" checked><label for="orbitToggle" style="margin:0">显示月球轨道</label></div>
+  <div class="row"><input type="checkbox" id="lineToggle" checked><label for="lineToggle" style="margin:0">显示日地月连线</label></div>
+
+  <button id="playBtn">⏸ 暂停</button>
+  <button id="resetBtn" class="secondary">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+  <div class="nav-hint">💡 可拖拽画布中的月球改变月相</div>
+</aside>
+
+<main class="lab-main">
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="phase">🌙 月相变化</button>
+    <button class="mode-tab" data-mode="solar">☀️ 日食演示</button>
+    <button class="mode-tab" data-mode="lunar">🌑 月食演示</button>
+  </div>
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3 id="infoTitle">月相变化的原理</h3>
+    <div id="infoBody"></div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  // ===== 状态 =====
+  var cssW = 800, cssH = 500, dpr = 1;
+  var mode = 'phase';                 // 'phase' | 'solar' | 'lunar'
+  var age = 7.4;
+  var savedPhaseAge = 7.4;
+  var speed = 1;
+  var playing = true;
+  var SYNODIC = 29.53;
+  var eclipseProgress = 0;
+  var eclipseDir = 1;
+  var eclipseSpeed = 1;
+
+  var showRay = true, showOrbit = true, showLine = true;
+
+  // 布局
+  var leftW, rightW;
+  var earthX, earthY, orbitR, earthR, moonR;
+  var rightCx, rightCy, rightR;
+
+  var ageValEl = document.getElementById('ageVal');
+  var ageRangeEl = document.getElementById('ageRange');
+  var speedValEl = document.getElementById('speedVal');
+  var readoutEl = document.getElementById('readout');
+
+  // ===== 工具 =====
+  function withAlpha(c, a) {
+    if (!c) return 'rgba(0,0,0,' + a + ')';
+    c = String(c).trim();
+    if (c.charAt(0) === '#') {
+      var h = c.slice(1);
+      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+      if (h.length >= 6) {
+        var n = parseInt(h.slice(0, 6), 16);
+        if (isNaN(n)) return c;
+        return 'rgba(' + ((n>>16)&255) + ',' + ((n>>8)&255) + ',' + (n&255) + ',' + a + ')';
+      }
+    }
+    var m = c.match(/^rgba?\(([^)]+)\)$/i);
+    if (m) {
+      var p = m[1].split(',');
+      if (p.length >= 3) return 'rgba(' + p[0].trim() + ',' + p[1].trim() + ',' + p[2].trim() + ',' + a + ')';
+    }
+    return c;
+  }
+  function pseudo(seed) {
+    var x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  // ===== 相位计算 =====
+  function getPhaseAngle(a) { return (a / SYNODIC) * TAU; }
+  function getIllumination(a) { return (1 - Math.cos(getPhaseAngle(a))) / 2; }
+
+  function getPhaseName(a) {
+    if (a < 1.85 || a > 27.68) return '新月';
+    if (a < 5.54) return '蛾眉月';
+    if (a < 9.23) return '上弦月';
+    if (a < 12.91) return '盈凸月';
+    if (a < 16.60) return '满月';
+    if (a < 20.29) return '亏凸月';
+    if (a < 23.98) return '下弦月';
+    return '残月';
+  }
+
+  function getPhaseIndex(a) {
+    if (a < 1.85 || a > 27.68) return 0;
+    if (a < 5.54) return 1;
+    if (a < 9.23) return 2;
+    if (a < 12.91) return 3;
+    if (a < 16.60) return 4;
+    if (a < 20.29) return 5;
+    if (a < 23.98) return 6;
+    return 7;
+  }
+
+  // ===== 尺寸 =====
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    leftW = cssW * 0.56;
+    rightW = cssW * 0.44;
+
+    earthX = leftW * 0.36;
+    earthY = cssH * 0.5;
+    orbitR = Math.min(leftW * 0.36, cssH * 0.34);
+    earthR = Math.min(leftW * 0.09, cssH * 0.11);
+    moonR = Math.min(leftW * 0.06, cssH * 0.07);
+
+    rightCx = leftW + rightW * 0.5;
+    rightCy = cssH * 0.46;
+    rightR = Math.min(rightW * 0.38, cssH * 0.26);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  // ===== 月相绘制（地球看到的月球亮面） =====
+  function drawMoonPhaseAt(cx, cy, R, a) {
+    var phi = getPhaseAngle(a);
+    var cosPhi = Math.cos(phi);
+    var sinPhi = Math.sin(phi);
+    var aRad = R * cosPhi;
+    var illum = (1 - cosPhi) / 2;
+
+    // 暗面
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, TAU);
+    ctx.fillStyle = '#1c1c2a';
+    ctx.fill();
+
+    if (illum < 0.005) return;
+
+    if (illum > 0.995) {
+      // 满月
+      var g = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.2, R * 0.1, cx, cy, R);
+      g.addColorStop(0, '#f5f5ff');
+      g.addColorStop(0.7, '#d8d8e0');
+      g.addColorStop(1, '#9a9aae');
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, TAU);
+      ctx.fillStyle = g;
+      ctx.fill();
+      drawCraters(cx, cy, R, 0.35);
+      return;
+    }
+
+    // 亮部
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - R);
+
+    if (sinPhi >= 0) {
+      ctx.arc(cx, cy, R, -Math.PI/2, Math.PI/2, false);
+    } else {
+      ctx.arc(cx, cy, R, -Math.PI/2, Math.PI/2, true);
+    }
+
+    var aAbs = Math.max(Math.abs(aRad), 0.01);
+    var ellipseDir = sinPhi >= 0 ? (aRad < 0) : (aRad > 0);
+    ctx.ellipse(cx, cy, aAbs, R, 0, Math.PI/2, -Math.PI/2, ellipseDir);
+    ctx.closePath();
+    ctx.fillStyle = '#e6e6ef';
+    ctx.fill();
+
+    // 陨石坑
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, TAU);
+    ctx.clip();
+    drawCraters(cx, cy, R, 0.3);
+    ctx.restore();
+  }
+
+  function drawCraters(cx, cy, R, maxAlpha) {
+    for (var i = 0; i < 6; i++) {
+      var ang = pseudo(i * 7.3) * TAU;
+      var rr = pseudo(i * 11.7) * 0.7;
+      var px = cx + Math.cos(ang) * rr * R;
+      var py = cy + Math.sin(ang) * rr * R;
+      var pr = (0.05 + pseudo(i * 3.1) * 0.08) * R;
+      ctx.fillStyle = 'rgba(90, 90, 110, ' + maxAlpha + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, pr, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  // ===== 俯视月球（右半亮，左半暗） =====
+  function drawMoonTopView(x, y, R) {
+    // 暗底
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, TAU);
+    ctx.fillStyle = '#10101a';
+    ctx.fill();
+
+    // 右半亮
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, R, -Math.PI/2, Math.PI/2, false);
+    ctx.closePath();
+    ctx.clip();
+    var g = ctx.createLinearGradient(x, y, x + R, y);
+    g.addColorStop(0, '#c8c8d8');
+    g.addColorStop(0.5, '#ececf5');
+    g.addColorStop(1, '#ffffff');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - R, y - R, R * 2, R * 2);
+    ctx.restore();
+
+    // 陨石坑
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, TAU);
+    ctx.clip();
+    for (var i = 0; i < 5; i++) {
+      var ang = pseudo(i * 3.1 + 2) * TAU;
+      var rr = pseudo(i * 5.7 + 2) * 0.75;
+      var px = x + Math.cos(ang) * rr * R;
+      var py = y + Math.sin(ang) * rr * R;
+      var pr = (0.06 + pseudo(i * 7.3 + 2) * 0.09) * R;
+      ctx.fillStyle = 'rgba(70, 70, 90, 0.35)';
+      ctx.beginPath();
+      ctx.arc(px, py, pr, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ===== 俯视地球 =====
+  function drawEarthTopView(x, y, R) {
+    // 暗面
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, TAU);
+    ctx.fillStyle = '#0a1420';
+    ctx.fill();
+
+    // 右半亮
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, R, -Math.PI/2, Math.PI/2, false);
+    ctx.closePath();
+    ctx.clip();
+    var g = ctx.createLinearGradient(x, y, x + R, y);
+    g.addColorStop(0, '#1a4a80');
+    g.addColorStop(0.5, '#3a7bd5');
+    g.addColorStop(1, '#6ac0f0');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - R, y - R, R * 2, R * 2);
+
+    // 大陆
+    for (var i = 0; i < 4; i++) {
+      var ang = pseudo(i * 3.3 + 5) * TAU;
+      var rr = pseudo(i * 5.7 + 5) * 0.7;
+      var px = x + Math.cos(ang) * rr * R;
+      var py = y + Math.sin(ang) * rr * R;
+      if (px > x - R * 0.2) {
+        ctx.fillStyle = 'rgba(60, 140, 90, 0.65)';
+        ctx.beginPath();
+        ctx.ellipse(px, py, R * 0.2, R * 0.13, ang, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ===== 太阳光晕（右边缘） =====
+  function drawSunGlow() {
+    var g = ctx.createRadialGradient(leftW + 20, cssH * 0.5, 30, leftW + 20, cssH * 0.5, leftW * 0.9);
+    g.addColorStop(0, 'rgba(255, 230, 150, 0.55)');
+    g.addColorStop(0.4, 'rgba(255, 190, 80, 0.15)');
+    g.addColorStop(1, 'rgba(255, 150, 50, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, leftW + 40, cssH);
+
+    // 太阳核心半圆
+    ctx.beginPath();
+    ctx.arc(leftW + 40, cssH * 0.5, 26, Math.PI * 0.5, Math.PI * 1.5, false);
+    ctx.fillStyle = 'rgba(255, 220, 120, 0.7)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(leftW + 40, cssH * 0.5, 20, Math.PI * 0.5, Math.PI * 1.5, false);
+    ctx.fillStyle = '#ffe9a0';
+    ctx.fill();
+  }
+
+  // ===== 太阳平行光线 =====
+  function drawSunRays(TH) {
+    if (!showRay) return;
+    ctx.strokeStyle = withAlpha(TH.ray3, 0.55);
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([10, 7]);
+    for (var y = 30; y < cssH - 20; y += 34) {
+      ctx.beginPath();
+      ctx.moveTo(leftW + 30, y);
+      ctx.lineTo(40, y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = withAlpha(TH.ray3, 0.7);
+    for (var y = 30; y < cssH - 20; y += 34) {
+      ctx.beginPath();
+      ctx.moveTo(40, y);
+      ctx.lineTo(52, y - 5);
+      ctx.lineTo(52, y + 5);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // ===== 日食影子 =====
+  function drawSolarEclipseShadows(TH) {
+    var theta = 0;
+    var mx = earthX + Math.cos(theta) * orbitR;
+    var my = earthY - Math.sin(theta) * orbitR;
+
+    // 半影锥（宽，扩散）
+    ctx.beginPath();
+    ctx.moveTo(mx - moonR * 0.92, my - moonR * 0.92);
+    ctx.lineTo(mx - moonR * 0.92, my + moonR * 0.92);
+    ctx.lineTo(earthX - earthR * 3.2, earthY + earthR * 2.2);
+    ctx.lineTo(earthX - earthR * 3.2, earthY - earthR * 2.2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+    ctx.fill();
+
+    // 本影锥（窄，收敛）
+    ctx.beginPath();
+    ctx.moveTo(mx - moonR * 0.92, my - moonR * 0.92);
+    ctx.lineTo(mx - moonR * 0.92, my + moonR * 0.92);
+    ctx.lineTo(earthX + earthR * 1.4, earthY);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fill();
+
+    // 影子标签
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.9);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('本影', (mx + earthX) / 2, my - moonR * 1.8);
+    ctx.fillText('半影', (mx + earthX) / 2 + 4, my + moonR * 2.2);
+  }
+
+  // ===== 月食影子 =====
+  function drawLunarEclipseShadows(TH) {
+    var theta = Math.PI;
+    var mx = earthX + Math.cos(theta) * orbitR;
+    var my = earthY - Math.sin(theta) * orbitR;
+
+    // 地球半影锥
+    ctx.beginPath();
+    ctx.moveTo(earthX - earthR * 0.92, earthY - earthR * 0.92);
+    ctx.lineTo(earthX - earthR * 0.92, earthY + earthR * 0.92);
+    ctx.lineTo(mx - moonR * 2.2, my + moonR * 3.5);
+    ctx.lineTo(mx - moonR * 2.2, my - moonR * 3.5);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.fill();
+
+    // 地球本影锥
+    ctx.beginPath();
+    ctx.moveTo(earthX - earthR * 0.92, earthY - earthR * 0.92);
+    ctx.lineTo(earthX - earthR * 0.92, earthY + earthR * 0.92);
+    ctx.lineTo(mx + moonR * 0.5, my);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(80, 15, 15, 0.75)';
+    ctx.fill();
+
+    // 标签
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.9);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('地球本影', (earthX + mx) / 2, my - earthR * 1.4);
+  }
+
+  // ===== 俯视全景 =====
+  function drawTopView(TH) {
+    drawSunGlow();
+    drawSunRays(TH);
+
+    // 轨道
+    if (showOrbit) {
+      ctx.strokeStyle = withAlpha(TH.normal, 0.35);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(earthX, earthY, orbitR, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    var theta = getPhaseAngle(age);
+    var mx, my;
+
+    if (mode === 'solar') {
+      theta = 0;
+      mx = earthX + Math.cos(theta) * orbitR;
+      my = earthY - Math.sin(theta) * orbitR;
+      drawSolarEclipseShadows(TH);
+    } else if (mode === 'lunar') {
+      theta = Math.PI;
+      mx = earthX + Math.cos(theta) * orbitR;
+      my = earthY - Math.sin(theta) * orbitR;
+      drawLunarEclipseShadows(TH);
+    } else {
+      mx = earthX + Math.cos(theta) * orbitR;
+      my = earthY - Math.sin(theta) * orbitR;
+    }
+
+    // 日地月连线
+    if (showLine) {
+      ctx.strokeStyle = withAlpha(TH.ray3, 0.3);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(earthX + earthR, earthY);
+      ctx.lineTo(leftW + 40, earthY);
+      ctx.stroke();
+
+      ctx.strokeStyle = withAlpha(TH.ray2, 0.55);
+      ctx.beginPath();
+      ctx.moveTo(earthX, earthY);
+      ctx.lineTo(mx, my);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 地球
+    drawEarthTopView(earthX, earthY, earthR);
+
+    // 月球（月食模式中若进入本影则染暗红）
+    if (mode === 'lunar') {
+      var entering = eclipseProgress > 0.3 && eclipseProgress < 0.7;
+      drawMoonTopView(mx, my, moonR);
+      if (entering) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(mx, my, moonR, 0, TAU);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(120, 25, 15, ' + (entering ? 0.75 : 0) + ')';
+        ctx.fillRect(mx - moonR, my - moonR, moonR * 2, moonR * 2);
+        ctx.restore();
+      }
+    } else {
+      drawMoonTopView(mx, my, moonR);
+    }
+
+    // 标签
+    ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.95);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('地球', earthX, earthY + earthR + 18);
+
+    ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#e8e8f0';
+    ctx.fillText('月球', mx, my + moonR + 16);
+
+    ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.ray3, 0.95);
+    ctx.textAlign = 'right';
+    ctx.fillText('☀ 太阳方向', leftW + 34, 22);
+  }
+
+  // ===== 右侧 · 月相 =====
+  function drawRightPhase(TH) {
+    // 分隔线
+    ctx.strokeStyle = withAlpha(TH.normal, 0.15);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(leftW, 20);
+    ctx.lineTo(leftW, cssH - 20);
+    ctx.stroke();
+
+    // 标题
+    ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.85);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('从地球看到的月相', rightCx, 30);
+
+    // 月相大图
+    drawMoonPhaseAt(rightCx, rightCy, rightR, age);
+
+    // 月相名
+    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#e8e8f0';
+    ctx.fillText(getPhaseName(age), rightCx, rightCy + rightR + 32);
+
+    // 照亮比例
+    var illum = getIllumination(age) * 100;
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.8);
+    ctx.fillText('照亮 ' + illum.toFixed(1) + '%', rightCx, rightCy + rightR + 52);
+  }
+
+  // ===== 右侧 · 日食地面视图 =====
+  function drawRightSolar(TH) {
+    ctx.strokeStyle = withAlpha(TH.normal, 0.15);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(leftW, 20);
+    ctx.lineTo(leftW, cssH - 20);
+    ctx.stroke();
+
+    ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.85);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('地面观测到的太阳', rightCx, 30);
+
+    var sunR = rightR * 0.72;
+    var moonR2 = rightR * 0.74;
+
+    // 太阳圆盘 + 光晕
+    var glow = ctx.createRadialGradient(rightCx, rightCy, sunR * 0.8, rightCx, rightCy, sunR * 2.5);
+    glow.addColorStop(0, 'rgba(255, 220, 100, 0.5)');
+    glow.addColorStop(0.5, 'rgba(255, 180, 60, 0.15)');
+    glow.addColorStop(1, 'rgba(255, 150, 40, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, sunR * 2.5, 0, TAU);
+    ctx.fill();
+
+    var sunG = ctx.createRadialGradient(rightCx - sunR * 0.3, rightCy - sunR * 0.3, sunR * 0.1, rightCx, rightCy, sunR);
+    sunG.addColorStop(0, '#fff5c8');
+    sunG.addColorStop(0.7, '#ffcc55');
+    sunG.addColorStop(1, '#ffaa22');
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, sunR, 0, TAU);
+    ctx.fillStyle = sunG;
+    ctx.fill();
+
+    // 月球（遮挡太阳）
+    var offset = (eclipseProgress - 0.5) * sunR * 6;
+    var moonX = rightCx + offset;
+    var moonY = rightCy;
+
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, moonR2, 0, TAU);
+    ctx.fillStyle = '#0a0a12';
+    ctx.fill();
+
+    // 标签
+    var state = '';
+    var overlap = Math.abs(offset) < (sunR + moonR2) * 0.8;
+    if (Math.abs(offset) < sunR * 0.3) state = '日全食';
+    else if (overlap) state = '日偏食';
+    else state = '未发生日食';
+
+    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = state === '日全食' ? '#ffaa22' : '#e8e8f0';
+    ctx.fillText(state, rightCx, rightCy + sunR + 34);
+
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.8);
+    ctx.fillText('进度 ' + Math.round(eclipseProgress * 100) + '%', rightCx, rightCy + sunR + 54);
+  }
+
+  // ===== 右侧 · 月食地面视图 =====
+  function drawRightLunar(TH) {
+    ctx.strokeStyle = withAlpha(TH.normal, 0.15);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(leftW, 20);
+    ctx.lineTo(leftW, cssH - 20);
+    ctx.stroke();
+
+    ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.85);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('地面观测到的月亮', rightCx, 30);
+
+    var moonR2 = rightR * 0.85;
+
+    // 月球
+    var g = ctx.createRadialGradient(rightCx - moonR2 * 0.2, rightCy - moonR2 * 0.2, moonR2 * 0.1, rightCx, rightCy, moonR2);
+    g.addColorStop(0, '#f5f5ff');
+    g.addColorStop(0.7, '#d8d8e0');
+    g.addColorStop(1, '#9a9aae');
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, moonR2, 0, TAU);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // 陨石坑
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, moonR2, 0, TAU);
+    ctx.clip();
+    drawCraters(rightCx, rightCy, moonR2, 0.4);
+    ctx.restore();
+
+    // 地球影子
+    var shadowR = rightR * 1.15;
+    var shadowOff = (eclipseProgress - 0.5) * rightR * 5;
+    var shadowX = rightCx + shadowOff;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(rightCx, rightCy, moonR2, 0, TAU);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.arc(shadowX, rightCy, shadowR, 0, TAU);
+    ctx.fillStyle = 'rgba(110, 25, 18, 0.88)';
+    ctx.fill();
+    ctx.restore();
+
+    // 状态
+    var state = '';
+    var dist = Math.abs(shadowOff);
+    if (dist < rightR * 0.3) state = '月全食（血月）';
+    else if (dist < shadowR + moonR2) state = '月偏食';
+    else state = '未发生月食';
+
+    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = state.indexOf('全食') >= 0 ? '#c0392b' : '#e8e8f0';
+    ctx.fillText(state, rightCx, rightCy + moonR2 + 34);
+
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = withAlpha(TH.normal, 0.8);
+    ctx.fillText('地球影子覆盖：' + Math.round(eclipseProgress * 100) + '%', rightCx, rightCy + moonR2 + 54);
+  }
+
+  // ===== 主绘制 =====
+  function draw() {
+    var TH = App.getTheme();
+
+    // 深空背景
+    ctx.fillStyle = '#0a0e1a';
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    // 星空
+    ctx.fillStyle = '#ffffff';
+    for (var i = 0; i < 90; i++) {
+      var sx = pseudo(i * 3.7 + 1) * cssW;
+      var sy = pseudo(i * 5.3 + 1) * cssH;
+      var sr = 0.5 + pseudo(i * 7.1 + 1) * 1;
+      var sa = 0.15 + pseudo(i * 9.7 + 1) * 0.35;
+      ctx.globalAlpha = sa;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    drawTopView(TH);
+
+    if (mode === 'phase') drawRightPhase(TH);
+    else if (mode === 'solar') drawRightSolar(TH);
+    else if (mode === 'lunar') drawRightLunar(TH);
+  }
+
+  // ===== 读数 =====
+  function updateReadout() {
+    var html = '';
+
+    if (mode === 'phase') {
+      var phi = getPhaseAngle(age);
+      var deg = (phi * 180 / Math.PI).toFixed(1);
+      var illum = getIllumination(age) * 100;
+      var name = getPhaseName(age);
+      html += '月龄：<b>' + age.toFixed(2) + '</b> 天<br>';
+      html += '相位角：<b>' + deg + '°</b><br>';
+      html += '照亮比例：<b>' + illum.toFixed(1) + '%</b><br>';
+      html += '月相：<b>' + name + '</b>';
+    } else if (mode === 'solar') {
+      var st = eclipseProgress < 0.3 || eclipseProgress > 0.7 ? '日偏食' : '日全食';
+      if (eclipseProgress < 0.1 || eclipseProgress > 0.9) st = '日食临界';
+      html += '现象：<b>' + st + '</b><br>';
+      html += '进度：<b>' + Math.round(eclipseProgress * 100) + '%</b><br>';
+      html += '月球位于日地之间<br>';
+      html += '<span style="color:#f59e0b;">⚠ 直接观测会灼伤眼睛</span>';
+    } else if (mode === 'lunar') {
+      var st2 = Math.abs(eclipseProgress - 0.5) < 0.2 ? '月全食' : (eclipseProgress < 0.1 || eclipseProgress > 0.9 ? '月食临界' : '月偏食');
+      html += '现象：<b>' + st2 + '</b><br>';
+      html += '进度：<b>' + Math.round(eclipseProgress * 100) + '%</b><br>';
+      html += '月球进入地球本影<br>';
+      html += '<span style="color:#22c55e;">✓ 可直接肉眼观测</span>';
+    }
+    readoutEl.innerHTML = html;
+
+    // 表格高亮
+    if (mode === 'phase') {
+      var idx = getPhaseIndex(age);
+      var rows = document.querySelectorAll('#caseTable tbody tr');
+      for (var i = 0; i < rows.length; i++) {
+        rows[i].classList.toggle('active', i === idx);
+      }
+    } else {
+      var rows2 = document.querySelectorAll('#caseTable tbody tr');
+      for (var j = 0; j < rows2.length; j++) {
+        rows2[j].classList.remove('active');
+      }
+    }
+  }
+
+  // ===== 拖拽月球 =====
+  var dragging = false;
+  var activePointer = null;
+
+  function getMoonPos() {
+    var theta = getPhaseAngle(age);
+    return [earthX + Math.cos(theta) * orbitR, earthY - Math.sin(theta) * orbitR];
+  }
+
+  function updateMoonFromPointer(px, py) {
+    var dx = px - earthX;
+    var dy = -(py - earthY);
+    var theta = Math.atan2(dy, dx);
+    if (theta < 0) theta += TAU;
+    age = (theta / TAU) * SYNODIC;
+    if (age < 0) age = 0;
+    if (age >= SYNODIC) age = SYNODIC - 0.001;
+    savedPhaseAge = age;
+    ageRangeEl.value = age;
+    ageValEl.textContent = age.toFixed(2);
+  }
+
+  canvas.addEventListener('pointerdown', function(e){
+    if (mode !== 'phase') return;
+    if (activePointer !== null) return;
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    if (px > leftW) return;
+    var mp = getMoonPos();
+    var dist = Math.hypot(px - mp[0], py - mp[1]);
+    if (dist < Math.max(moonR * 2.8, 28)) {
+      dragging = true;
+      activePointer = e.pointerId;
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+      playing = false;
+      document.getElementById('playBtn').textContent = '▶ 播放';
+      updateMoonFromPointer(px, py);
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e){
+    if (!dragging || e.pointerId !== activePointer) return;
+    var rect = canvas.getBoundingClientRect();
+    updateMoonFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+  });
+
+  function endPointer(e) {
+    if (e.pointerId !== activePointer) return;
+    dragging = false;
+    activePointer = null;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  // ===== 侧栏 =====
+  ageRangeEl.addEventListener('input', function(e){
+    age = parseFloat(e.target.value);
+    savedPhaseAge = age;
+    ageValEl.textContent = age.toFixed(2);
+    playing = false;
+    document.getElementById('playBtn').textContent = '▶ 播放';
+  });
+
+  document.getElementById('speedRange').addEventListener('input', function(e){
+    speed = parseFloat(e.target.value);
+    speedValEl.textContent = speed.toFixed(1);
+  });
+
+  document.getElementById('eclSpeedRange').addEventListener('input', function(e){
+    eclipseSpeed = parseFloat(e.target.value);
+    document.getElementById('eclSpeedVal').textContent = eclipseSpeed.toFixed(1);
+  });
+
+  document.getElementById('rayToggle').addEventListener('change', function(e){ showRay = e.target.checked; });
+  document.getElementById('orbitToggle').addEventListener('change', function(e){ showOrbit = e.target.checked; });
+  document.getElementById('lineToggle').addEventListener('change', function(e){ showLine = e.target.checked; });
+
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function(){
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function(){
+    age = 7.4;
+    savedPhaseAge = 7.4;
+    eclipseProgress = 0;
+    eclipseDir = 1;
+    playing = true;
+    speed = 1;
+    eclipseSpeed = 1;
+    ageRangeEl.value = age;
+    ageValEl.textContent = age.toFixed(2);
+    document.getElementById('speedRange').value = 1;
+    speedValEl.textContent = '1.0';
+    document.getElementById('eclSpeedRange').value = 1;
+    document.getElementById('eclSpeedVal').textContent = '1.0';
+    playBtn.textContent = '⏸ 暂停';
+  });
+
+  // ===== 选项卡 =====
+  var tabs = document.querySelectorAll('.mode-tab');
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      var newMode = tab.getAttribute('data-mode');
+      if (newMode === mode) return;
+
+      // 保存当前 phase 模式下的 age
+      if (mode === 'phase') savedPhaseAge = age;
+
+      // 切换激活状态
+      tabs.forEach(function(t){ t.classList.remove('active'); });
+      tab.classList.add('active');
+
+      mode = newMode;
+      eclipseProgress = 0;
+      eclipseDir = 1;
+      playing = true;
+      playBtn.textContent = '⏸ 暂停';
+
+      if (mode === 'phase') {
+        age = savedPhaseAge;
+        ageRangeEl.value = age;
+        ageValEl.textContent = age.toFixed(2);
+        document.getElementById('phaseControls').style.display = '';
+        document.getElementById('eclipseControls').style.display = 'none';
+        document.getElementById('speedRange').parentElement.style.display = '';
+        document.getElementById('orbitToggle').parentElement.style.display = '';
+        document.getElementById('lineToggle').parentElement.style.display = '';
+        document.querySelector('.nav-hint').textContent = '💡 可拖拽画布中的月球改变月相';
+      } else {
+        document.getElementById('phaseControls').style.display = 'none';
+        document.getElementById('eclipseControls').style.display = '';
+        document.getElementById('speedRange').parentElement.style.display = 'none';
+        document.getElementById('orbitToggle').parentElement.style.display = 'none';
+        document.getElementById('lineToggle').parentElement.style.display = 'none';
+        document.querySelector('.nav-hint').textContent = '💡 自动循环演示中，可调节速度';
+      }
+
+      updateInfoPanel();
+    });
+  });
+
+  // ===== 文字描述 =====
+  var INFO = {
+    phase: {
+      title: '月相变化的原理',
+      body: '<p>月相是指从地球上看月球被太阳照亮的半球所呈现的形状变化。月球本身不发光，我们看到的月光是月球反射的太阳光。由于日、地、月三者相对位置不断变化，月球被照亮的半球朝向地球的部分也在不断改变，形成了我们看到的月相周期变化。</p>' +
+        '<p>在一个朔望月（约 29.53 天）中，月相依次经历：<span class="highlight">新月（朔）、蛾眉月、上弦月、盈凸月、满月（望）、亏凸月、下弦月、残月</span>，最后回到新月。新月时月球位于地球和太阳之间，被照亮的半球背对地球，从地球上看不到月亮；满月时地球位于月球和太阳之间，月球被完全照亮的一面朝向地球，此时月亮呈明亮的圆形。</p>' +
+        '<p>在上弦月（月龄约 7.4 天）时，从地球看月亮呈"右半亮、左半暗"的半月形状，此时月球、地球、太阳形成一个直角，月球位于太阳东侧 90°。下弦月（月龄约 22 天）时则相反，呈"左半亮、右半暗"的形状。</p>' +
+        '<p>值得注意的是，月相变化与月食不同：<span class="highlight">月相是正常的光照几何关系，每月都会如期发生</span>；而月食需要月球恰好运行到地球影子里，这要满足日地月严格共线，因此并不常见。此外，北半球和南半球看到的月相"方向"不同——北半球看到的盈月是右亮，而南半球则是左亮，这与观测者的朝向有关。</p>' +
+        '<p>月亮每天升起的时间也不同：新月与太阳同升同落，上弦月中午升起、午夜落下，满月傍晚升起、清晨落下，下弦月午夜升起、中午落下。这也解释了为什么我们有时能在白天看到月亮。</p>'
+    },
+    solar: {
+      title: '日食的形成与演示',
+      body: '<p>日食发生在月球运行到太阳和地球之间，且三者严格共线时。此时<span class="highlight">月球遮挡住太阳射向地球的光</span>，使地球上部分地区的人们看到太阳被部分或完全遮住的现象。</p>' +
+        '<p>日食分为三种类型：<span class="highlight">日全食</span>（月球完全遮住太阳，观测者处于月球本影区）、<span class="highlight">日环食</span>（月球看起来比太阳小，边缘露出环形光晕，观测者处于月球伪本影区）、<span class="highlight">日偏食</span>（观测者处于月球半影区，太阳部分被遮挡）。日全食时天空骤然变暗，肉眼可见太阳日冕层和闪烁的恒星。</p>' +
+        '<p>由于月球轨道面相对于地球轨道面（黄道面）倾斜约 5°，因此<span class="highlight">并不是每个新月都会发生日食</span>，只有当新月恰逢月球位于黄道面附近时才会出现。日食发生时，地球上不同位置的人们看到的景象不同，同一时间有些地方看到日全食，有些地方只看到日偏食，还有一些地方完全看不到。</p>' +
+        '<p>日食带宽度通常只有几十到几百千米，持续时间也只有几分钟，因此能观测到日全食是非常难得的体验。1922 年、2009 年、2024 年的日全食都曾引起全球天文爱好者的关注。</p>' +
+        '<p><span class="highlight">⚠ 重要安全提醒：</span>观测日食时，绝对不能用肉眼或望远镜直接注视太阳，必须使用专业的太阳观测镜（如巴德膜）或通过投影法观测。普通的墨镜、烟熏玻璃、X 光片都无法有效过滤太阳的紫外线和红外线辐射，会造成不可逆的视网膜灼伤。</p>'
+    },
+    lunar: {
+      title: '月食的形成与演示',
+      body: '<p>月食发生在满月时，地球位于太阳和月球之间，且三者严格共线。此时<span class="highlight">地球挡住了太阳射向月球的光</span>，月球进入地球的影子中，从地球上看到月亮逐渐变暗甚至完全消失。</p>' +
+        '<p>月食分为三种类型：<span class="highlight">月全食</span>（月球完全进入地球本影，此时月球呈暗红色，即著名的"血月"）、<span class="highlight">月偏食</span>（月球部分进入地球本影，一部分变暗）、<span class="highlight">半影月食</span>（月球只进入地球半影，亮度略有下降但肉眼难以察觉）。</p>' +
+        '<p>月全食时月球呈现血红色，原因在于：太阳光经过地球大气层时，波长较短的蓝光、紫光被大气散射掉，只有波长较长的<span class="highlight">红光被折射到月球表面</span>。这正是我们在日出日落时看到的红色天空的同一原理——都是瑞利散射作用。</p>' +
+        '<p>和日食一样，由于月球轨道倾角约 5°，<span class="highlight">并不是每个满月都会发生月食</span>。但由于地球体积远大于月球，地球影子的锥面积也远大于月球影子，所以月食的发生频率比日食高一些。</p>' +
+        '<p>月食的观测范围比日食大得多——当地球夜半球上的人们（约占全球一半人口）都能同时看到月食，而日食的观测者只限于狭窄的日食带内。更重要的是，<span class="highlight">月食观测不需要任何防护设备</span>，直接用肉眼就可以安全观看，也可以用手机或相机拍摄，是一次完美的天文观测机会。</p>' +
+        '<p>我国古代将"月食"称为"天狗食月"，并在《诗经》中就有记载。现代天文学已经能够精确预测月食的发生时间和持续时间，例如 2025 年 3 月 14 日和 9 月 7 日都发生过月全食。</p>'
+    }
+  };
+
+  function updateInfoPanel() {
+    var info = INFO[mode];
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoBody').innerHTML = info.body;
+  }
+
+  // ===== 主循环 =====
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+    if (!isFinite(dt) || dt < 0) dt = 0;
+
+    if (playing && !dragging) {
+      if (mode === 'phase') {
+        age += dt * speed;
+        if (age >= SYNODIC) age -= SYNODIC;
+        if (age < 0) age = 0;
+        savedPhaseAge = age;
+        ageRangeEl.value = age;
+        ageValEl.textContent = age.toFixed(2);
+      } else {
+        eclipseProgress += dt * eclipseSpeed * 0.25 * eclipseDir;
+        if (eclipseProgress > 1) {
+          eclipseProgress = 1;
+          eclipseDir = -1;
+        } else if (eclipseProgress < 0) {
+          eclipseProgress = 0;
+          eclipseDir = 1;
+        }
+      }
+    }
+
+    if (!isFinite(age)) age = 0;
+    if (!isFinite(eclipseProgress)) eclipseProgress = 0;
+    if (!isFinite(orbitR) || orbitR <= 0) resize();
+
+    draw();
+    updateReadout();
+  }
+
+  // ===== 启动 =====
+  resize();
+  updateInfoPanel();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
