@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>反射弧演示 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .info-panel {
+    margin: 10px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #333;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  .info-panel.show { display: block; }
+  .info-panel h3 {
+    margin: 0 0 8px;
+    color: #2c3e50;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .info-panel h3 .close-x {
+    cursor: pointer;
+    color: #aaa;
+    font-size: 20px;
+    font-weight: normal;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .info-panel h3 .close-x:hover { color: #e74c3c; }
+  .info-panel p {
+    margin: 0;
+    line-height: 1.8;
+    font-size: 13px;
+    text-indent: 2em;
+    color: #444;
+  }
+  .info-panel .meta {
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e8ebef;
+    text-indent: 0;
+    line-height: 1.6;
+  }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>反射弧演示</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>结构</th><th>功能</th><th>组成</th></tr></thead>
+    <tbody>
+      <tr data-id="receptor"><td>感受器</td><td>接受刺激，产生冲动</td><td>感觉神经末梢</td></tr>
+      <tr data-id="afferent"><td>传入神经</td><td>传导冲动至中枢</td><td>感觉神经元</td></tr>
+      <tr data-id="center"><td>神经中枢</td><td>分析综合，发出冲动</td><td>脊髓灰质等</td></tr>
+      <tr data-id="efferent"><td>传出神经</td><td>传导冲动至效应器</td><td>运动神经元</td></tr>
+      <tr data-id="effector"><td>效应器</td><td>作出反应</td><td>运动神经末梢及肌肉</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <button id="stimBtn">⚡ 施加刺激</button>
+  <button id="resetBtn" class="secondary">↺ 重置状态</button>
+
+  <div class="row" style="margin-top:12px;">
+    <input type="checkbox" id="labelToggle" checked>
+    <label for="labelToggle" style="margin:0;">显示结构名称</label>
+  </div>
+
+  <div class="readout" id="readout">
+    点击“施加刺激”触发反射<br>
+    点击画布中的结构查看详细说明
+  </div>
+  <div class="nav-hint">💡 注意电信号在突触处的传递方向</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3><span id="infoTitle"></span><span class="close-x" id="infoClose">×</span></h3>
+    <p id="infoBody"></p>
+    <div class="meta" id="infoMeta"></div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+
+  var showLabel = true;
+  var activeSelection = null;
+
+  // 交互状态
+  var signalProgress = 0; // 0-100，100代表完成传导
+  var isStimulating = false;
+  var muscleContraction = 0; // 0-1，肌肉收缩程度
+
+  // 定义反射弧路径节点 (使用控制点来画平滑曲线)
+  // 坐标基于画布中心原点
+  var path = [
+    { x: -250, y: -20 },  // 感受器
+    { x: -150, y: -80 },  // 传入神经
+    { x: -60, y: -60 },   // 突触前膜
+    { x: -40, y: -60 },   // 突触后膜
+    { x: 60, y: 60 },     // 神经中枢
+    { x: 150, y: 80 },    // 传出神经
+    { x: 250, y: 20 }     // 效应器
+  ];
+
+  // 计算路径上的点 (Catmull-Rom样条曲线)
+  function getPointOnPath(t) {
+    var n = path.length - 1;
+    if (t <= 0) return path[0];
+    if (t >= 1) return path[n];
+    
+    var p = t * n;
+    var seg = Math.floor(p);
+    var lt = p - seg;
+    
+    var p0 = path[Math.max(0, seg - 1)];
+    var p1 = path[seg];
+    var p2 = path[Math.min(n, seg + 1)];
+    var p3 = path[Math.min(n, seg + 2)];
+    
+    var cp1x = p1.x + (p2.x - p0.x) / 6;
+    var cp1y = p1.y + (p2.y - p0.y) / 6;
+    var cp2x = p2.x - (p3.x - p1.x) / 6;
+    var cp2y = p2.y - (p3.y - p1.y) / 6;
+    
+    var mt = 1 - lt;
+    var x = mt*mt*mt*p1.x + 3*mt*mt*lt*cp1x + 3*mt*lt*lt*cp2x + lt*lt*lt*p2.x;
+    var y = mt*mt*mt*p1.y + 3*mt*mt*lt*cp1y + 3*mt*lt*lt*cp2y + lt*lt*lt*p2.y;
+    return { x: x, y: y };
+  }
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  // 绘制反射弧结构
+  function drawAnatomy(TH) {
+    ctx.save();
+    ctx.translate(cssW / 2, cssH / 2);
+    ctx.scale(view.scale, view.scale);
+
+    // 1. 绘制背景神经路径（线宽表示神经粗细）
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for(var i=0; i<path.length-1; i++) {
+      var p0 = path[Math.max(0, i-1)];
+      var p1 = path[i];
+      var p2 = path[i+1];
+      var p3 = path[Math.min(path.length-1, i+2)];
+      
+      var cp1x = p1.x + (p2.x - p0.x)/6;
+      var cp1y = p1.y + (p2.y - p0.y)/6;
+      var cp2x = p2.x - (p3.x - p1.x)/6;
+      var cp2y = p2.y - (p3.y - p1.y)/6;
+      
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+    ctx.strokeStyle = '#f1f5f9'; // 极浅的底
+    ctx.lineWidth = 18;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.strokeStyle = '#cbd5e1'; // 神经灰色
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // 2. 绘制神经元细节 (树突)
+    // 传入神经神经元
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2;
+    for(var i=0; i<5; i++) {
+      ctx.beginPath();
+      var ang = -Math.PI/2 + (i-2)*0.3;
+      ctx.moveTo(-100, -60);
+      ctx.lineTo(-100 + Math.cos(ang)*30, -60 + Math.sin(ang)*30);
+      ctx.stroke();
+    }
+    
+    // 脊髓灰质（蝴蝶形）的简化表示
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 30, 50, 0, 0, TAU);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fill();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // 突触间隙标记
+    ctx.strokeStyle = '#ef4444'; // 红色标记突触
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-50, -60);
+    ctx.lineTo(-30, -60);
+    ctx.stroke();
+
+    // 3. 绘制感受器 (皮肤)
+    var rPos = path[0];
+    ctx.beginPath();
+    ctx.arc(rPos.x, rPos.y, 25, Math.PI/2, Math.PI*1.5);
+    ctx.fillStyle = '#fcd34d';
+    ctx.fill();
+    if(activeSelection === 'receptor') {
+      ctx.strokeStyle = TH.ray3; ctx.lineWidth = 4; ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    // 4. 绘制效应器 (肌肉)
+    var ePos = path[path.length-1];
+    ctx.save();
+    ctx.translate(ePos.x, ePos.y);
+    // 肌肉收缩动画
+    var mScaleX = 1 + muscleContraction * 0.3;
+    var mScaleY = 1 - muscleContraction * 0.4;
+    ctx.scale(mScaleX, mScaleY);
+    
+    ctx.beginPath();
+    ctx.ellipse(20, 0, 40, 20, 0, 0, TAU);
+    ctx.fillStyle = '#fca5a5';
+    ctx.fill();
+    if(activeSelection === 'effector') {
+      ctx.strokeStyle = TH.ray3; ctx.lineWidth = 4; ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // 肌肉纹理
+    ctx.beginPath();
+    for(var i=-20; i<40; i+=10) {
+      ctx.moveTo(i, -15);
+      ctx.lineTo(i, 15);
+    }
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.3)';
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  function drawSignal() {
+    if (signalProgress > 0) {
+      // 绘制多个拖尾粒子
+      for (var j = 0; j < 5; j++) {
+        var t = Math.max(0, signalProgress / 100 - j * 0.02);
+        var pos = getPointOnPath(t);
+        var s = w2s(pos.x, pos.y);
+        
+        ctx.beginPath();
+        ctx.arc(s[0], s[1], 8 - j*1.5, 0, TAU);
+        
+        // 突触处颜色改变
+        var color = '#fbbf24'; // 默认黄色
+        if (t > 0.4 && t < 0.6) {
+           // 在突触/中枢区域
+           color = '#ef4444'; 
+        }
+        
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 15 - j*3;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+
+  function drawUI(TH) {
+    if (showLabel) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = 'bold 13px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      function drawLabel(text, x, y) {
+        var s = w2s(x, y);
+        ctx.fillText(text, s[0], s[1]);
+      }
+
+      drawLabel('感受器', -250, -60);
+      drawLabel('传入神经', -150, -110);
+      drawLabel('神经中枢', 0, -80);
+      drawLabel('传出神经', 150, 120);
+      drawLabel('效应器', 250, 60);
+    }
+  }
+
+  function draw() {
+    var TH = App.getTheme();
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    drawAnatomy(TH);
+    drawSignal();
+    drawUI(TH);
+  }
+
+  // =============== 交互逻辑 ===============
+  var INFO = {
+    receptor: {
+      title: '感受器',
+      meta: '反射弧的起点',
+      desc: '感受器是由感觉神经末梢组成的结构，能感受外界环境或体内的刺激，并产生神经冲动。例如皮肤中的触觉感受器、痛觉感受器，以及眼中的视觉感受器等。'
+    },
+    afferent: {
+      title: '传入神经',
+      meta: '连接感受器与神经中枢',
+      desc: '又称感觉神经。它将感受器产生的神经冲动，由外周传导至神经中枢（如脊髓）。注意，神经冲动在这一段是单向传导的。'
+    },
+    center: {
+      title: '神经中枢',
+      meta: '反射弧的核心',
+      desc: '神经中枢由脑或脊髓中的灰质构成。它接收传入神经传来的冲动，进行分析和综合，然后产生新的神经冲动，传给传出神经。图中的突触（间隙）保证了信号传导的单向性，只能从前一个神经元传给后一个神经元。'
+    },
+    efferent: {
+      title: '传出神经',
+      meta: '连接神经中枢与效应器',
+      desc: '又称运动神经。它将神经中枢发出的指令（神经冲动）传导到效应器。如果传出神经受损，虽然能感觉到刺激，但肌肉无法作出反应。'
+    },
+    effector: {
+      title: '效应器',
+      meta: '执行反应的器官',
+      desc: '效应器是由传出神经末梢及其支配的肌肉或腺体组成的。当它接收到传出神经传来的冲动时，肌肉就会收缩，或腺体分泌，从而发生我们看到的反应。'
+    }
+  };
+
+  function showInfo(key) {
+    var info = INFO[key];
+    if (!info) return;
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoBody').textContent = info.desc;
+    document.getElementById('infoMeta').innerHTML = info.meta;
+    var panel = document.getElementById('infoPanel');
+    panel.classList.add('show');
+    panel.scrollTop = 0;
+    
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === key);
+    }
+  }
+
+  document.getElementById('infoClose').addEventListener('click', function() {
+    document.getElementById('infoPanel').classList.remove('show');
+    activeSelection = null;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  });
+
+  function hitTest(px, py) {
+    var lx = (px - cssW/2) / view.scale;
+    var ly = (py - cssH/2) / view.scale;
+
+    // 感受器
+    if (Math.hypot(lx + 250, ly + 20) < 35) return 'receptor';
+    // 效应器
+    if (Math.hypot(lx - 270, ly - 20) < 50) return 'effector';
+    
+    // 传入神经 (线段检测近似)
+    if (lx > -220 && lx < -80 && ly > -100 && ly < -30) return 'afferent';
+    // 神经中枢
+    if (Math.abs(lx) < 50 && Math.abs(ly) < 70) return 'center';
+    // 传出神经
+    if (lx > 80 && lx < 200 && ly > 20 && ly < 100) return 'efferent';
+
+    return null;
+  }
+
+  function triggerStimulus() {
+    signalProgress = 0;
+    isStimulating = true;
+    muscleContraction = 0;
+  }
+
+  document.getElementById('stimBtn').addEventListener('click', triggerStimulus);
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    signalProgress = 0;
+    isStimulating = false;
+    muscleContraction = 0;
+    activeSelection = null;
+    document.getElementById('infoPanel').classList.remove('show');
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  });
+
+  document.getElementById('labelToggle').addEventListener('change', function(e) { showLabel = e.target.checked; });
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.5, Math.min(2.5, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var hit = hitTest(px, py);
+      activeSelection = hit;
+      
+      if (hit) {
+        showInfo(hit);
+        if (hit === 'receptor') {
+          triggerStimulus(); // 点击感受器也触发刺激
+        }
+      } else {
+        document.getElementById('infoPanel').classList.remove('show');
+        var rows = document.querySelectorAll('#caseTable tbody tr');
+        for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+
+    if (isStimulating) {
+      signalProgress += dt * 60; // 约 1.6 秒传导完毕
+      if (signalProgress >= 100) {
+        signalProgress = 100;
+        isStimulating = false;
+      }
+      
+      // 信号到达末端时，肌肉收缩
+      if (signalProgress > 85) {
+        muscleContraction += dt * 5;
+        if (muscleContraction > 1) muscleContraction = 1;
+      }
+    } else {
+      // 肌肉舒张恢复
+      if (muscleContraction > 0) {
+        muscleContraction -= dt * 2;
+        if (muscleContraction < 0) muscleContraction = 0;
+      }
+    }
+
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    draw();
+  }
+
+  resize();
+  targetView.cx = 0; targetView.cy = 0; targetView.scale = 1;
+  view.cx = 0; view.cy = 0; view.scale = 1;
+  
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
