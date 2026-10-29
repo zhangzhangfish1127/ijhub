@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>人体消化系统 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .info-panel {
+    margin: 10px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #333;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  .info-panel.show { display: block; }
+  .info-panel h3 {
+    margin: 0 0 8px;
+    color: #2c3e50;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .info-panel h3 .close-x {
+    cursor: pointer;
+    color: #aaa;
+    font-size: 20px;
+    font-weight: normal;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .info-panel h3 .close-x:hover { color: #e74c3c; }
+  .info-panel p {
+    margin: 0;
+    line-height: 1.8;
+    font-size: 13px;
+    text-indent: 2em;
+    color: #444;
+  }
+  .info-panel .meta {
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e8ebef;
+    text-indent: 0;
+    line-height: 1.6;
+  }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>人体消化系统</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>营养物质</th><th>开始消化部位</th><th>最终消化产物</th></tr></thead>
+    <tbody>
+      <tr data-id="starch"><td>淀粉 (馒头)</td><td>口腔</td><td>葡萄糖</td></tr>
+      <tr data-id="protein"><td>蛋白质 (瘦肉)</td><td>胃</td><td>氨基酸</td></tr>
+      <tr data-id="fat"><td>脂肪 (肥肉)</td><td>小肠</td><td>甘油+脂肪酸</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <div class="row">
+    <label style="margin:0; font-weight:bold;">选择食物：</label>
+  </div>
+  <div class="row">
+    <input type="radio" name="foodType" id="typeStarch" value="starch" checked>
+    <label for="typeStarch" style="margin:0;">淀粉类 (馒头)</label>
+  </div>
+  <div class="row">
+    <input type="radio" name="foodType" id="typeProtein" value="protein">
+    <label for="typeProtein" style="margin:0;">蛋白质类 (瘦肉)</label>
+  </div>
+  <div class="row">
+    <input type="radio" name="foodType" id="typeFat" value="fat">
+    <label for="typeFat" style="margin:0;">脂肪类 (肥肉)</label>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <input type="checkbox" id="labelToggle" checked>
+    <label for="labelToggle" style="margin:0;">显示器官名称</label>
+  </div>
+
+  <button id="playBtn">⏸ 暂停</button>
+  <button id="resetBtn" class="secondary">↺ 重新演示</button>
+
+  <div class="readout" id="readout"></div>
+  <div class="nav-hint">💡 点击画布中的器官查看详细功能</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3><span id="infoTitle"></span><span class="close-x" id="infoClose">×</span></h3>
+    <p id="infoBody"></p>
+    <div class="meta" id="infoMeta"></div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+
+  var foodType = 'starch'; // 'starch' | 'protein' | 'fat'
+  var showLabel = true;
+  var playing = true;
+  var activeSelection = null;
+
+  // 动画进度 (0 - 100)
+  var progress = 0;
+  var progressSpeed = 5; // 每秒推进 5%
+
+  // 消化路径关键点（相对坐标）
+  var pathPoints = [
+    { x: 0, y: -180 },   // 口腔
+    { x: 0, y: -120 },   // 食道
+    { x: -20, y: -50 },  // 胃上部
+    { x: -40, y: 10 },   // 胃下部
+    { x: 20, y: 30 },    // 十二指肠
+    { x: 50, y: 80 },    // 小肠弯曲1
+    { x: -50, y: 100 },  // 小肠弯曲2
+    { x: 40, y: 140 },   // 小肠弯曲3
+    { x: -30, y: 180 }   // 大肠
+  ];
+
+  // 粒子系统 (用于被吸收的营养小分子)
+  var particles = [];
+
+  // 常量颜色
+  var COLOR_STARCH = '#f59e0b';    // 淀粉 (琥珀色)
+  var COLOR_GLUCOSE = '#ef4444';   // 葡萄糖 (红色)
+  var COLOR_PROTEIN = '#10b981';   // 蛋白质 (绿色)
+  var COLOR_AMINO = '#8b5cf6';     // 氨基酸 (紫色)
+  var COLOR_FAT = '#eab308';       // 脂肪 (黄色)
+  var COLOR_FATTY = '#ec4899';     // 脂肪酸 (粉色)
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  // 计算路径上的位置
+  function getPointOnPath(t) {
+    // t 是 0-1
+    var n = pathPoints.length - 1;
+    var seg = Math.floor(t * n);
+    if (seg >= n) seg = n - 1;
+    var localT = (t * n) - seg;
+    
+    var p1 = pathPoints[seg];
+    var p2 = pathPoints[seg + 1];
+    
+    var x = p1.x + (p2.x - p1.x) * localT;
+    var y = p1.y + (p2.y - p1.y) * localT;
+    
+    // 加入一点贝塞尔曲线的平滑感
+    if (seg > 0) {
+      var p0 = pathPoints[seg - 1];
+      var cp1x = p1.x + (p2.x - p0.x) / 6;
+      var cp1y = p1.y + (p2.y - p0.y) / 6;
+      // 简化处理，直接线性插值加一点弧度
+      x += Math.sin(localT * Math.PI) * (p2.x - p1.x) * 0.2;
+      y += Math.sin(localT * Math.PI) * (p2.y - p1.y) * 0.2;
+    }
+    
+    return { x: x, y: y };
+  }
+
+  // 生成吸收粒子
+  function spawnAbsorbParticles(x, y, color) {
+    for (var i = 0; i < 5; i++) {
+      particles.push({
+        x: x,
+        y: y,
+        vx: (Math.random() - 0.5) * 2 + (x > 0 ? 1 : -1) * 2, // 向外侧扩散
+        vy: (Math.random() - 0.5) * 2,
+        life: 1.0,
+        color: color,
+        size: 3 + Math.random() * 2
+      });
+    }
+  }
+
+  function updateParticles(dt) {
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= dt * 1.5;
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+      }
+    }
+  }
+
+  function drawDigestiveSystem(TH) {
+    ctx.save();
+    ctx.translate(cssW / 2, cssH / 2);
+    ctx.scale(view.scale, view.scale);
+
+    // 1. 绘制消化道背景路径
+    ctx.beginPath();
+    ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
+    for (var i = 1; i < pathPoints.length; i++) {
+      ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
+    }
+    ctx.strokeStyle = '#fcd34d'; // 浅橙色
+    ctx.lineWidth = 30;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    
+    // 消化管道内壁（深一点）
+    ctx.strokeStyle = '#fef3c7';
+    ctx.lineWidth = 24;
+    ctx.stroke();
+
+    // 2. 绘制器官细节
+    // 肝脏与胆囊
+    ctx.beginPath();
+    ctx.ellipse(-70, -30, 40, 25, 0.2, 0, TAU);
+    ctx.fillStyle = '#fca5a5';
+    ctx.fill();
+    if (activeSelection === 'liver') {
+      ctx.strokeStyle = TH.ray3;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    
+    // 胰腺
+    ctx.beginPath();
+    ctx.ellipse(40, 10, 25, 10, -0.5, 0, TAU);
+    ctx.fillStyle = '#fde047';
+    ctx.fill();
+    
+    // 3. 绘制食物团和消化过程
+    var t = progress / 100;
+    var pos = getPointOnPath(t);
+    
+    // 判断当前所在的器官
+    var inMouth = t < 0.12;
+    var inStomach = t >= 0.25 && t < 0.45;
+    var inSmallIntestine = t >= 0.45 && t < 0.85;
+    var inLargeIntestine = t >= 0.85;
+
+    // 消化变色逻辑
+    var currentColor = COLOR_STARCH;
+    if (foodType === 'protein') currentColor = COLOR_PROTEIN;
+    if (foodType === 'fat') currentColor = COLOR_FAT;
+
+    var isDigested = false;
+    
+    // 淀粉在口腔开始消化，小肠彻底消化
+    if (foodType === 'starch') {
+      if (inMouth) currentColor = '#d97706'; // 变成麦芽糖的颜色
+      if (inSmallIntestine) { currentColor = COLOR_GLUCOSE; isDigested = true; }
+    }
+    // 蛋白质在胃开始，小肠彻底
+    if (foodType === 'protein') {
+      if (inStomach) currentColor = '#059669'; 
+      if (inSmallIntestine) { currentColor = COLOR_AMINO; isDigested = true; }
+    }
+    // 脂肪在小肠才消化
+    if (foodType === 'fat') {
+      if (inSmallIntestine) { currentColor = COLOR_FATTY; isDigested = true; }
+    }
+
+    // 绘制食物团（如果没有完全被吸收）
+    if (t < 0.95) {
+      var radius = 15;
+      if (inStomach) radius = 15 + Math.sin(progress) * 3; // 在胃里被揉搓
+      
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, radius, 0, TAU);
+      ctx.fillStyle = currentColor;
+      ctx.shadowColor = currentColor;
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      
+      // 食物纹理
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.arc(pos.x - 5, pos.y - 5, 4, 0, TAU);
+      ctx.fill();
+    }
+
+    // 在小肠内发生吸收（喷射小分子）
+    if (inSmallIntestine && isDigested && playing) {
+      if (Math.random() < 0.3) { // 控制喷射频率
+        spawnAbsorbParticles(pos.x, pos.y, currentColor);
+      }
+    }
+
+    // 绘制吸收粒子
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, TAU);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.life;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // 添加消化液标签
+    if (showLabel) {
+      ctx.fillStyle = '#475569';
+      ctx.font = '12px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      
+      if (inMouth) {
+        ctx.fillText('唾液 (淀粉酶)', 0, -200);
+      } else if (inStomach) {
+        ctx.fillText('胃液 (蛋白酶)', -70, 0);
+      } else if (inSmallIntestine) {
+        ctx.fillText('肠液、胰液、胆汁', 80, 80);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  function drawUI(TH) {
+    // 侧边栏读数
+    var readoutHtml = '';
+    var t = progress / 100;
+    
+    var organName = '';
+    var action = '';
+
+    if (t < 0.12) { organName = '口腔'; action = '牙齿咀嚼，舌的搅拌，唾液淀粉酶将部分淀粉分解为麦芽糖。'; }
+    else if (t < 0.25) { organName = '食道'; action = '食物的通道，没有消化和吸收功能。'; }
+    else if (t < 0.45) { organName = '胃'; action = '胃壁肌肉收缩，将食物与胃液混合。胃液中的蛋白酶初步消化蛋白质。'; }
+    else if (t < 0.85) { organName = '小肠'; action = '消化和吸收的主要场所。在肠液、胰液和胆汁的作用下，淀粉、蛋白质、脂肪被彻底分解。'; }
+    else { organName = '大肠'; action = '吸收少量的水、无机盐和部分维生素，形成粪便。'; }
+
+    readoutHtml += '当前所在器官：<b>' + organName + '</b><br>';
+    readoutHtml += '<div style="margin-top:6px; font-size:12px; color:#64748b;">' + action + '</div>';
+
+    document.getElementById('readout').innerHTML = readoutHtml;
+
+    // 标注器官名称
+    if (showLabel) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = 'bold 14px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      function drawLabel(text, x, y) {
+        var s = w2s(x, y);
+        ctx.fillText(text, s[0], s[1]);
+      }
+
+      drawLabel('口腔', 0, -200);
+      drawLabel('食道', 20, -120);
+      drawLabel('胃', -80, -10);
+      drawLabel('肝脏', -110, -60);
+      drawLabel('小肠', 100, 80);
+      drawLabel('大肠', -80, 180);
+    }
+  }
+
+  function draw() {
+    var TH = App.getTheme();
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    drawDigestiveSystem(TH);
+    drawUI(TH);
+  }
+
+  var INFO = {
+    mouth: {
+      title: '口腔',
+      meta: '消化道的起始部位',
+      desc: '口腔内有牙齿、舌和唾液腺导管的开口。牙齿的咀嚼和舌的搅拌，能使食物与唾液充分混合；唾液中含有唾液淀粉酶，能将部分淀粉分解为麦芽糖。所以，我们吃馒头时，越嚼越觉得有甜味。'
+    },
+    stomach: {
+      title: '胃',
+      meta: '消化道最膨大的部分',
+      desc: '胃呈囊状，能暂时储存食物。胃壁内有胃腺，分泌胃液。胃液呈强酸性，含有盐酸和蛋白酶，能初步消化蛋白质。胃壁的肌肉层发达，能收缩蠕动，将食物与胃液充分混合，形成食糜。'
+    },
+    liver: {
+      title: '肝脏',
+      meta: '人体最大的消化腺',
+      desc: '肝脏是人体最大的消化腺，分泌胆汁。胆汁不含消化酶，但能乳化脂肪，将脂肪颗粒变成微小的脂肪微粒，增加脂肪与消化酶的接触面积，有利于脂肪的消化。胆汁储存在胆囊中，经胆管流入小肠。'
+    },
+    smallIntestine: {
+      title: '小肠',
+      meta: '消化和吸收的主要场所',
+      desc: '小肠很长，内表面有环形皱襞和小肠绒毛，大大增加了消化和吸收的面积。小肠内有肠液、胰液和胆汁，含有消化糖类、蛋白质和脂肪的多种酶。在这里，营养物质被彻底分解为可以被吸收的小分子物质（如葡萄糖、氨基酸、甘油和脂肪酸），并透过小肠绒毛壁进入毛细血管。'
+    },
+    largeIntestine: {
+      title: '大肠',
+      meta: '吸收水分，形成粪便',
+      desc: '大肠的起始部位叫盲肠，盲肠上连着一条细小的阑尾。大肠没有消化功能，主要是吸收部分水分、无机盐和维生素，将食物残渣形成粪便，通过肛门排出体外。'
+    }
+  };
+
+  function showInfo(key) {
+    var info = INFO[key];
+    if (!info) return;
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoBody').textContent = info.desc;
+    document.getElementById('infoMeta').innerHTML = info.meta;
+    var panel = document.getElementById('infoPanel');
+    panel.classList.add('show');
+    panel.scrollTop = 0;
+    
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  }
+
+  document.getElementById('infoClose').addEventListener('click', function() {
+    document.getElementById('infoPanel').classList.remove('show');
+    activeSelection = null;
+  });
+
+  function hitTest(px, py) {
+    var lx = (px - cssW/2) / view.scale;
+    var ly = (py - cssH/2) / view.scale;
+
+    // 肝脏
+    if (Math.hypot(lx + 70, ly + 30) < 45) return 'liver';
+    // 胃
+    if (Math.hypot(lx + 40, ly) < 50) return 'stomach';
+    // 小肠
+    if (ly > 50 && ly < 160) return 'smallIntestine';
+    // 大肠
+    if (ly > 160) return 'largeIntestine';
+
+    return null;
+  }
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.4, Math.min(2.5, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var hit = hitTest(px, py);
+      activeSelection = hit;
+      
+      if (hit) {
+        showInfo(hit);
+      } else {
+        document.getElementById('infoPanel').classList.remove('show');
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  // 单选切换食物类型
+  function setFoodType(type) {
+    foodType = type;
+    progress = 0;
+    particles = [];
+    playing = true;
+    document.getElementById('playBtn').textContent = '⏸ 暂停';
+    
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === type);
+    }
+  }
+
+  document.getElementById('typeStarch').addEventListener('change', function(e) { if(e.target.checked) setFoodType('starch'); });
+  document.getElementById('typeProtein').addEventListener('change', function(e) { if(e.target.checked) setFoodType('protein'); });
+  document.getElementById('typeFat').addEventListener('change', function(e) { if(e.target.checked) setFoodType('fat'); });
+
+  document.getElementById('labelToggle').addEventListener('change', function(e) { showLabel = e.target.checked; });
+
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function() {
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    setFoodType(foodType);
+    view.cx = 0; view.cy = 0; view.scale = 1;
+    targetView.cx = 0; targetView.cy = 0; targetView.scale = 1;
+  });
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+
+    if (playing) {
+      progress += dt * progressSpeed;
+      if (progress > 100) {
+        progress = 100;
+        playing = false;
+        playBtn.textContent = '▶ 播放';
+      }
+    }
+
+    updateParticles(dt);
+
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    draw();
+  }
+
+  resize();
+  setFoodType('starch');
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
