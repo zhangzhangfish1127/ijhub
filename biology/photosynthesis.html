@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>光合作用与呼吸作用 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .info-panel {
+    margin: 10px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #333;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  .info-panel.show { display: block; }
+  .info-panel h3 {
+    margin: 0 0 8px;
+    color: #2c3e50;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .info-panel h3 .close-x {
+    cursor: pointer;
+    color: #aaa;
+    font-size: 20px;
+    font-weight: normal;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .info-panel h3 .close-x:hover { color: #e74c3c; }
+  .info-panel p {
+    margin: 0;
+    line-height: 1.8;
+    font-size: 13px;
+    text-indent: 2em;
+    color: #444;
+  }
+  .info-panel .meta {
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e8ebef;
+    text-indent: 0;
+    line-height: 1.6;
+  }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>光合作用与呼吸作用</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>作用</th><th>场所</th><th>原料与产物</th></tr></thead>
+    <tbody>
+      <tr data-id="photo"><td>光合作用</td><td>叶绿体</td><td>CO₂+H₂O → 有机物+O₂</td></tr>
+      <tr data-id="resp"><td>呼吸作用</td><td>线粒体</td><td>有机物+O₂ → CO₂+H₂O</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>光照强度 = <span id="lightVal">50</span> %
+    <input type="range" id="lightRange" min="0" max="100" value="50" step="1">
+  </label>
+
+  <div class="readout" id="readout"></div>
+
+  <div class="nav-hint">💡 观察光照强度改变时，气孔处气体流动方向的变化</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3><span id="infoTitle"></span><span class="close-x" id="infoClose">×</span></h3>
+    <p id="infoBody"></p>
+    <div class="meta" id="infoMeta"></div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+
+  var light = 50; // 0-100
+  var activeSelection = null;
+
+  // 气体粒子系统
+  var particles = [];
+  var MAX_PARTICLES = 150;
+
+  // 粒子类型
+  var TYPE_CO2 = 'co2';
+  var TYPE_O2 = 'o2';
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  // =============== 粒子系统初始化 ===============
+  function initParticles() {
+    particles = [];
+    for (var i = 0; i < MAX_PARTICLES; i++) {
+      particles.push(createParticle(true));
+    }
+  }
+
+  function createParticle(isInit) {
+    var isCO2 = Math.random() > 0.5;
+    var p = {
+      type: isCO2 ? TYPE_CO2 : TYPE_O2,
+      x: (Math.random() - 0.5) * 600, // 相对世界坐标
+      y: isInit ? (Math.random() * 300 + 100) : (Math.random() * 80 + 220), // 下半部分/气孔下方
+      vx: (Math.random() - 0.5) * 2,
+      vy: -Math.random() * 2 - 1,
+      size: isCO2 ? 6 : 4,
+      life: Math.random() // 用于控制闪烁
+    };
+    return p;
+  }
+
+  initParticles();
+
+  // =============== 核心逻辑计算 ===============
+  // 光合速率：受光照影响，光照越强光合越快。50光照时等于呼吸速率。
+  function getRates() {
+    var photoRate = light / 50; // 50%光照时=1
+    var respRate = 1;
+    return { photo: photoRate, resp: respRate };
+  }
+
+  // =============== 绘制 ===============
+  function drawCell(TH) {
+    // 绘制叶片细胞（占据画布上半部分）
+    ctx.save();
+    ctx.translate(cssW / 2, cssH * 0.35);
+    ctx.scale(view.scale, view.scale);
+
+    // 细胞壁（绿色半透明）
+    ctx.beginPath();
+    ctx.roundRect(-280, -140, 560, 280, 40);
+    ctx.fillStyle = 'rgba(220, 252, 231, 0.6)';
+    ctx.fill();
+    ctx.strokeStyle = '#86efac';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // 细胞质
+    ctx.beginPath();
+    ctx.roundRect(-270, -130, 540, 260, 30);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fill();
+
+    // 气孔位置 (画在底部中间)
+    var stomataX = 0;
+    var stomataY = 140;
+
+    // ====== 绘制细胞器 ======
+    
+    // 1. 叶绿体 (左上和右上)
+    function drawChloro(x, y, angle, isActive) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 45, 25, 0, 0, TAU);
+      var grad = ctx.createRadialGradient(-10, -10, 5, 0, 0, 45);
+      grad.addColorStop(0, '#4ade80');
+      grad.addColorStop(1, '#166534');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      
+      if (isActive) {
+        ctx.strokeStyle = TH.ray3;
+        ctx.lineWidth = 4;
+      } else {
+        ctx.strokeStyle = '#14532d';
+        ctx.lineWidth = 2;
+      }
+      ctx.stroke();
+      
+      // 基粒
+      ctx.fillStyle = '#14532d';
+      for (var i = -1; i <= 1; i++) {
+        for (var j = -1; j <= 1; j++) {
+          if(i===0 && j===0) continue;
+          ctx.beginPath();
+          ctx.ellipse(i*15, j*10, 6, 3, 0.5, 0, TAU);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    var photoRate = getRates().photo;
+    var isPhotoActive = light > 0;
+    
+    // 光照越强，叶绿体发光越亮（用阴影模拟）
+    if (isPhotoActive) {
+      ctx.shadowColor = 'rgba(74, 222, 128, ' + (light/100 * 0.8) + ')';
+      ctx.shadowBlur = 20 * (light/100);
+    }
+    drawChloro(-140, -60, 0.2, activeSelection === 'photo');
+    drawChloro(140, -40, -0.3, activeSelection === 'photo');
+    ctx.shadowColor = 'transparent';
+
+    // 2. 线粒体 (中下)
+    function drawMito(x, y, angle, isActive) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 35, 20, 0, 0, TAU);
+      var grad = ctx.createRadialGradient(-10, -10, 5, 0, 0, 35);
+      grad.addColorStop(0, '#f87171');
+      grad.addColorStop(1, '#991b1b');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      
+      if (isActive) {
+        ctx.strokeStyle = TH.ray3;
+        ctx.lineWidth = 4;
+      } else {
+        ctx.strokeStyle = '#7f1d1d';
+        ctx.lineWidth = 2;
+      }
+      ctx.stroke();
+      
+      // 嵴
+      ctx.strokeStyle = '#7f1d1d';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for(var i=-20; i<=20; i+=10) {
+        ctx.moveTo(i, -12);
+        ctx.quadraticCurveTo(i+5, 0, i, 12);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 线粒体时刻在发光（呼吸作用）
+    ctx.shadowColor = 'rgba(248, 113, 113, 0.6)';
+    ctx.shadowBlur = 15;
+    drawMito(-60, 70, -0.5, activeSelection === 'resp');
+    drawMito(80, 80, 0.4, activeSelection === 'resp');
+    ctx.shadowColor = 'transparent';
+
+    // 标注文字
+    if (showLabel) {
+      ctx.fillStyle = '#166534';
+      ctx.font = 'bold 12px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('叶绿体', -140, -100);
+      ctx.fillText('叶绿体', 140, -80);
+
+      ctx.fillStyle = '#991b1b';
+      ctx.fillText('线粒体', -60, 110);
+      ctx.fillText('线粒体', 80, 120);
+
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('气孔', 0, 170);
+    }
+
+    ctx.restore();
+  }
+
+  // 绘制气体粒子
+  function drawParticles() {
+    var rates = getRates();
+    var netCO2 = rates.resp - rates.photo; // 正数表示净释放CO2，负数表示净吸收
+    var netO2 = rates.photo - rates.resp;  // 正数表示净释放O2，负数表示净吸收
+
+    // 气孔的屏幕坐标
+    var s = w2s(0, 140);
+    var stomataX = s[0];
+    var stomataY = s[1];
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      
+      // 粒子运动逻辑
+      // 如果是CO2
+      if (p.type === TYPE_CO2) {
+        if (netCO2 > 0.1) {
+          // 净释放：从细胞内向气孔外流
+          if (p.y > 140) {
+             // 已经在外面，慢慢飘散
+             p.vx += (Math.random() - 0.5) * 0.5;
+             p.vy -= 0.2;
+          } else {
+             // 在内部，引导向气孔
+             var dx = stomataX - (cssW/2 + p.x * view.scale);
+             var dy = stomataY - (cssH*0.35 + p.y * view.scale);
+             p.vx += dx * 0.005;
+             p.vy += dy * 0.005;
+          }
+        } else if (netCO2 < -0.1) {
+          // 净吸收：从外部向气孔内流
+          if (p.y > 140) {
+             var dx = stomataX - (cssW/2 + p.x * view.scale);
+             var dy = stomataY - (cssH*0.35 + p.y * view.scale);
+             p.vx += dx * 0.01;
+             p.vy += dy * 0.01;
+          } else {
+             // 进入内部后向叶绿体移动
+             p.vx += (Math.random() - 0.5) * 0.5;
+             p.vy -= 0.5;
+          }
+        }
+      } 
+      // 如果是O2
+      else if (p.type === TYPE_O2) {
+        if (netO2 > 0.1) {
+          // 净释放：从内部向气孔外流
+          if (p.y > 140) {
+             p.vx += (Math.random() - 0.5) * 0.5;
+             p.vy -= 0.2;
+          } else {
+             var dx = stomataX - (cssW/2 + p.x * view.scale);
+             var dy = stomataY - (cssH*0.35 + p.y * view.scale);
+             p.vx += dx * 0.005;
+             p.vy += dy * 0.005;
+          }
+        } else if (netO2 < -0.1) {
+          // 净吸收：从外部向气孔内流
+          if (p.y > 140) {
+             var dx = stomataX - (cssW/2 + p.x * view.scale);
+             var dy = stomataY - (cssH*0.35 + p.y * view.scale);
+             p.vx += dx * 0.01;
+             p.vy += dy * 0.01;
+          } else {
+             p.vx += (Math.random() - 0.5) * 0.5;
+             p.vy -= 0.5;
+          }
+        }
+      }
+
+      // 速度阻尼，防止失控
+      p.vx *= 0.95;
+      p.vy *= 0.95;
+      
+      // 默认微小的随机游走，如果没有净流向
+      if (Math.abs(netCO2) <= 0.1 && p.type === TYPE_CO2) {
+         p.vx += (Math.random() - 0.5) * 0.2;
+         p.vy += (Math.random() - 0.5) * 0.2;
+      }
+      if (Math.abs(netO2) <= 0.1 && p.type === TYPE_O2) {
+         p.vx += (Math.random() - 0.5) * 0.2;
+         p.vy += (Math.random() - 0.5) * 0.2;
+      }
+
+      // 更新位置
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // 边界处理（如果飘出屏幕太远，则重置）
+      if (p.y < -200 || p.y > 400 || p.x < -400 || p.x > 400) {
+        // 重置
+        p.x = (Math.random() - 0.5) * 200;
+        p.y = (Math.random() * 100 + 180); // 从下方重生
+        p.vx = (Math.random() - 0.5) * 2;
+        p.vy = -Math.random() * 2 - 1;
+      }
+
+      // 绘制
+      var px = cssW / 2 + p.x * view.scale;
+      var py = cssH * 0.35 + p.y * view.scale;
+      
+      ctx.beginPath();
+      ctx.arc(px, py, p.size * view.scale, 0, TAU);
+      
+      if (p.type === TYPE_CO2) {
+        ctx.fillStyle = '#94a3b8'; // CO2 用灰蓝色
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1;
+        ctx.fill();
+        // 写个小字 CO2 (太小时省略)
+        if (view.scale > 1.2) {
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 6px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('CO₂', px, py);
+        }
+      } else {
+        ctx.fillStyle = '#ef4444'; // O2 用鲜红色
+        ctx.fill();
+        if (view.scale > 1.2) {
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 6px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('O₂', px, py);
+        }
+      }
+    }
+  }
+
+  var showLabel = true;
+
+  function draw() {
+    var TH = App.getTheme();
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    // 绘制阳光（从左上角照射）
+    if (light > 0) {
+      var sunGrad = ctx.createRadialGradient(0, 0, 50, 0, 0, 500);
+      sunGrad.addColorStop(0, 'rgba(253, 224, 71, ' + (light/100 * 0.3) + ')');
+      sunGrad.addColorStop(1, 'rgba(253, 224, 71, 0)');
+      ctx.fillStyle = sunGrad;
+      ctx.fillRect(0, 0, cssW, cssH);
+
+      // 阳光射线
+      ctx.strokeStyle = 'rgba(253, 224, 71, ' + (light/100 * 0.4) + ')';
+      ctx.lineWidth = 2;
+      for(var i=0; i<8; i++) {
+        var angle = i * Math.PI / 4 + 0.2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle)*400, Math.sin(angle)*400);
+        ctx.stroke();
+      }
+    }
+
+    drawParticles();
+    drawCell(TH);
+
+    // 更新读数
+    var rates = getRates();
+    var netCO2 = rates.resp - rates.photo;
+    var netO2 = rates.photo - rates.resp;
+
+    var readoutHtml = '';
+    if (netCO2 > 0.05) {
+      readoutHtml += '净气体交换：吸收 O₂，释放 <b>CO₂</b><br>';
+      readoutHtml += '<span style="color:#ef4444;">呼吸作用 > 光合作用</span>';
+    } else if (netCO2 < -0.05) {
+      readoutHtml += '净气体交换：吸收 <b>CO₂</b>，释放 O₂<br>';
+      readoutHtml += '<span style="color:#22c55e;">光合作用 > 呼吸作用</span>';
+    } else {
+      readoutHtml += '净气体交换：<b>动态平衡</b><br>';
+      readoutHtml += '光合速率 = 呼吸速率 (光补偿点)';
+    }
+    document.getElementById('readout').innerHTML = readoutHtml;
+  }
+
+  var INFO = {
+    photo: {
+      title: '光合作用',
+      meta: '场所：叶绿体 · 条件：光照',
+      desc: '绿色植物通过叶绿体，利用光能，把二氧化碳和水转化成储存着能量的有机物（主要是淀粉），并且释放出氧气的过程。光合作用是地球上生物生存的基础，它不仅为植物自身提供了营养物质，也为其他生物提供了食物和氧气来源。'
+    },
+    resp: {
+      title: '呼吸作用',
+      meta: '场所：线粒体 · 条件：时刻进行',
+      desc: '细胞利用氧气，将有机物分解成二氧化碳和水，并且将储存在有机物中的能量释放出来，供给生命活动的需要。呼吸作用是生物的共同特征，无论白天黑夜，植物都在进行呼吸作用，它释放的能量是植物进行各项生命活动（如吸收无机盐、运输物质）的动力。'
+    }
+  };
+
+  function showInfo(key) {
+    var info = INFO[key];
+    if (!info) return;
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoBody').textContent = info.desc;
+    document.getElementById('infoMeta').innerHTML = info.meta;
+    document.getElementById('infoPanel').classList.add('show');
+    document.getElementById('infoPanel').scrollTop = 0;
+    
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === key);
+    }
+  }
+
+  document.getElementById('infoClose').addEventListener('click', function() {
+    document.getElementById('infoPanel').classList.remove('show');
+    activeSelection = null;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  });
+
+  function hitTest(px, py) {
+    var lx = (px - cssW/2) / view.scale;
+    var ly = (py - cssH*0.35) / view.scale;
+
+    // 叶绿体
+    if (Math.hypot(lx + 140, ly + 60) < 50) return 'photo';
+    if (Math.hypot(lx - 140, ly + 40) < 50) return 'photo';
+
+    // 线粒体
+    if (Math.hypot(lx + 60, ly - 70) < 40) return 'resp';
+    if (Math.hypot(lx - 80, ly - 80) < 40) return 'resp';
+
+    return null;
+  }
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.5, Math.min(2.5, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var hit = hitTest(px, py);
+      activeSelection = hit;
+      
+      if (hit) {
+        showInfo(hit);
+      } else {
+        document.getElementById('infoPanel').classList.remove('show');
+        var rows = document.querySelectorAll('#caseTable tbody tr');
+        for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  // 表格点击
+  var trs = document.querySelectorAll('#caseTable tbody tr');
+  for (var ti = 0; ti < trs.length; ti++) {
+    (function(tr) {
+      tr.addEventListener('click', function() {
+        var id = tr.getAttribute('data-id');
+        activeSelection = id;
+        showInfo(id);
+      });
+    })(trs[ti]);
+  }
+
+  // 滑块
+  var lightRange = document.getElementById('lightRange');
+  var lightVal = document.getElementById('lightVal');
+
+  lightRange.addEventListener('input', function(e) {
+    light = parseInt(e.target.value, 10);
+    lightVal.textContent = light;
+  });
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    draw();
+  }
+
+  resize();
+  lightRange.value = 50;
+  lightVal.textContent = 50;
+  
+  targetView.cx = 0; targetView.cy = 0; targetView.scale = 1;
+  view.cx = 0; view.cy = 0; view.scale = 1;
+  
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
