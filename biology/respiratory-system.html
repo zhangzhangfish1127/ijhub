@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>人体呼吸系统 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .info-panel {
+    margin: 10px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #333;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  .info-panel.show { display: block; }
+  .info-panel h3 {
+    margin: 0 0 8px;
+    color: #2c3e50;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .info-panel h3 .close-x {
+    cursor: pointer;
+    color: #aaa;
+    font-size: 20px;
+    font-weight: normal;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .info-panel h3 .close-x:hover { color: #e74c3c; }
+  .info-panel p {
+    margin: 0;
+    line-height: 1.8;
+    font-size: 13px;
+    text-indent: 2em;
+    color: #444;
+  }
+  .info-panel .meta {
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e8ebef;
+    text-indent: 0;
+    line-height: 1.6;
+  }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>人体呼吸系统</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>呼吸状态</th><th>膈肌与肋间肌</th><th>胸廓容积与气压</th></tr></thead>
+    <tbody>
+      <tr data-id="inhale"><td>吸气</td><td>收缩</td><td>增大，气压减小</td></tr>
+      <tr data-id="exhale"><td>呼气</td><td>舒张</td><td>减小，气压增大</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>呼吸频率 = <span id="bpmVal">15</span> 次/分
+    <input type="range" id="bpmRange" min="5" max="40" value="15" step="1">
+  </label>
+
+  <div class="row"><input type="checkbox" id="labelToggle" checked><label for="labelToggle" style="margin:0">显示器官名称</label></div>
+  <div class="row"><input type="checkbox" id="gasToggle" checked><label for="gasToggle" style="margin:0">显示气体交换</label></div>
+
+  <button id="playBtn">⏸ 暂停</button>
+  <button id="resetBtn" class="secondary">↺ 重置视角</button>
+
+  <div class="readout" id="readout"></div>
+  <div class="nav-hint">💡 点击画布器官查看详细说明</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3><span id="infoTitle"></span><span class="close-x" id="infoClose">×</span></h3>
+    <p id="infoBody"></p>
+    <div class="meta" id="infoMeta"></div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+
+  var bpm = 15;
+  var playing = true;
+  var showLabel = true;
+  var showGas = true;
+  var activeSelection = null;
+
+  var breathPhase = 0; // 0 到 1 为一个完整的呼吸周期
+  
+  // 粒子系统
+  var particles = [];
+  var MAX_PARTICLES = 80;
+
+  // 颜色定义
+  var COLOR_OXY = '#ef4444'; // 氧气 (鲜红)
+  var COLOR_CO2 = '#3b82f6'; // 二氧化碳 (亮蓝)
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  // =============== 粒子系统 ===============
+  function initParticles() {
+    particles = [];
+    for (var i = 0; i < MAX_PARTICLES; i++) {
+      resetParticle({}, true);
+    }
+  }
+
+  function resetParticle(p, isInit) {
+    var isOxy = Math.random() > 0.5;
+    p.type = isOxy ? 'O2' : 'CO2';
+    p.x = (Math.random() - 0.5) * 200; // 气管区域
+    p.y = isInit ? Math.random() * 100 : (Math.random() * 50 + 10); // 顶部
+    p.vx = 0;
+    p.vy = isOxy ? 1 : -1; // 默认向下/向上
+    p.speed = 0.8 + Math.random() * 0.6;
+    return p;
+  }
+
+  initParticles();
+
+  function getBreathState() {
+    // 0.0 - 0.5 吸气，0.5 - 1.0 呼气
+    var isInhale = (breathPhase % 1) < 0.5;
+    // 使用正弦波使动作平滑
+    var t = (breathPhase % 1) * 2 * Math.PI; 
+    var expansion = (Math.sin(t - Math.PI/2) + 1) / 2; // 0 到 1 之间震荡，吸气到底时 expansion=1
+    return { isInhale: isInhale, expansion: expansion };
+  }
+
+  function updateParticles(dt) {
+    if (!playing || !showGas) return;
+
+    var state = getBreathState();
+    
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      
+      // 吸气：粒子向下，呼气：粒子向上
+      if (state.isInhale) {
+        p.vy += 0.05;
+        if (p.type === 'O2') {
+           p.vy = Math.abs(p.vy) * 1.5; // 强力气向下
+        } else {
+           p.vy = -Math.abs(p.vy) * 0.5; // 二氧化碳在内部慢慢向上
+        }
+      } else {
+        p.vy -= 0.05;
+        if (p.type === 'CO2') {
+           p.vy = -Math.abs(p.vy) * 1.5; // 强力气向上
+        } else {
+           p.vy = Math.abs(p.vy) * 0.5; // 氧气在内部慢慢向下
+        }
+      }
+
+      p.vx += (Math.random() - 0.5) * 0.5;
+      p.vx *= 0.95;
+      p.vy *= 0.98;
+      
+      p.x += p.vx * p.speed;
+      p.y += p.vy * p.speed;
+
+      // 限制在气管与肺的路径内
+      if (p.y > 150) {
+        // 到达肺泡区
+        p.vx += (Math.random() - 0.5) * 2;
+        if (p.type === 'O2') {
+           p.vy = -Math.random() * 2; // O2 被吸收，反弹
+        }
+      }
+      
+      // 边界处理
+      if (p.y < -20) {
+        resetParticle(p, false);
+      } else if (p.y > 250 || Math.abs(p.x) > 200) {
+        // 如果飘出肺部边缘
+        resetParticle(p, false);
+      }
+    }
+  }
+
+  // =============== 绘图 ===============
+  function draw() {
+    var TH = App.getTheme();
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    var state = getBreathState();
+    var exp = state.expansion; // 0 (呼气结束) 到 1 (吸气结束)
+
+    ctx.save();
+    ctx.translate(cssW / 2, cssH * 0.45);
+    ctx.scale(view.scale, view.scale);
+
+    // 1. 绘制胸廓轮廓 (随呼吸扩张/收缩)
+    var chestWidth = 260 + exp * 60;
+    var chestHeight = 300 + exp * 40;
+    
+    ctx.beginPath();
+    ctx.ellipse(0, 20, chestWidth/2, chestHeight/2, 0, 0, TAU);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+    ctx.lineWidth = 8;
+    ctx.stroke();
+
+    // 绘制肋骨
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+    for (var i = 0; i < 4; i++) {
+      var ry = -60 + i * 40;
+      var rx = (chestWidth/2) * Math.cos((i-1.5) * 0.3);
+      ctx.beginPath();
+      ctx.ellipse(0, ry, rx, 20, 0, 0, Math.PI);
+      ctx.stroke();
+    }
+
+    // 2. 绘制肺 (随呼吸扩大/缩小)
+    var lungW = 70 + exp * 30;
+    var lungH = 120 + exp * 40;
+    var lungXOffset = 30 + exp * 15;
+
+    function drawLung(side) { // side: -1 左， 1 右
+      ctx.save();
+      ctx.translate(side * lungXOffset, 10);
+      
+      ctx.beginPath();
+      // 肺的形状：上窄下宽
+      ctx.moveTo(side * -10, -lungH/2);
+      ctx.quadraticCurveTo(side * lungW, -lungH/4, side * lungW, lungH/4);
+      ctx.quadraticCurveTo(side * lungW, lungH, side * 10, lungH);
+      ctx.quadraticCurveTo(side * -10, lungH, side * -10, lungH/2);
+      ctx.closePath();
+      
+      var grad = ctx.createRadialGradient(side * 20, 0, 10, side * 20, 0, lungH);
+      grad.addColorStop(0, 'rgba(252, 165, 165, 0.4)');
+      grad.addColorStop(1, 'rgba(252, 165, 165, 0.8)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      
+      if (activeSelection === 'lung') {
+        ctx.strokeStyle = TH.ray3;
+        ctx.lineWidth = 4;
+      } else {
+        ctx.strokeStyle = '#fca5a5';
+        ctx.lineWidth = 2;
+      }
+      ctx.stroke();
+
+      // 肺泡细节
+      if (exp > 0.8) {
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        for(var j=0; j<5; j++) {
+          ctx.beginPath();
+          ctx.arc(side * (10 + Math.random()*30), (Math.random()-0.5)*lungH*0.6, 6, 0, TAU);
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    drawLung(-1);
+    drawLung(1);
+
+    // 3. 绘制气管与支气管
+    ctx.beginPath();
+    ctx.moveTo(0, -chestHeight/2 - 40);
+    ctx.lineTo(0, -20);
+    // 分叉
+    ctx.moveTo(0, -20);
+    ctx.quadraticCurveTo(-30, -10, -lungXOffset, 10);
+    ctx.moveTo(0, -20);
+    ctx.quadraticCurveTo(30, -10, lungXOffset, 10);
+    ctx.strokeStyle = activeSelection === 'trachea' ? TH.ray3 : '#cbd5e1';
+    ctx.lineWidth = activeSelection === 'trachea' ? 10 : 12;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // 4. 绘制膈肌 (重点)
+    var diaphragmY = chestHeight/2 + 20 - exp * 40; // 吸气时(exp=1)膈肌下降，y变大；呼气时上升
+    ctx.beginPath();
+    // 膈肌是向上凸起的圆顶
+    var dip = 50 + exp * 30; // 吸气时变平，呼气时凸起明显
+    ctx.moveTo(-chestWidth/2, diaphragmY);
+    ctx.quadraticCurveTo(0, diaphragmY - (100 - exp*70), chestWidth/2, diaphragmY);
+    
+    if (activeSelection === 'diaphragm') {
+      ctx.strokeStyle = TH.ray3;
+      ctx.lineWidth = 8;
+    } else {
+      ctx.strokeStyle = '#fb923c'; // 橙色代表肌肉
+      ctx.lineWidth = 6;
+    }
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    
+    // 膈肌下方阴影
+    ctx.lineTo(chestWidth/2, diaphragmY + 60);
+    ctx.lineTo(-chestWidth/2, diaphragmY + 60);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(251, 146, 60, 0.1)';
+    ctx.fill();
+
+    // 5. 绘制气体粒子
+    if (showGas) {
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, TAU);
+        if (p.type === 'O2') {
+          ctx.fillStyle = COLOR_OXY;
+          ctx.shadowColor = COLOR_OXY;
+          ctx.shadowBlur = 6;
+        } else {
+          ctx.fillStyle = COLOR_CO2;
+          ctx.shadowColor = COLOR_CO2;
+          ctx.shadowBlur = 6;
+        }
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // 标注文字
+    if (showLabel) {
+      ctx.fillStyle = '#475569';
+      ctx.font = 'bold 14px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      ctx.fillText('气管', 0, -chestHeight/2 - 60);
+      ctx.fillText('左肺', -lungXOffset - 40, 10);
+      ctx.fillText('右肺', lungXOffset + 40, 10);
+      ctx.fillText('膈肌', 0, diaphragmY + 30);
+    }
+
+    ctx.restore();
+
+    // 更新读数
+    var readoutHtml = '';
+    var statusText = '';
+    var pressure = '';
+    if (state.isInhale) {
+      statusText = '吸气 (Inhale)';
+      pressure = '肺内气压 < 外界大气压';
+      readoutHtml += '膈肌与肋间肌：<b>收缩</b><br>';
+      readoutHtml += '胸廓容积：<b>增大</b><br>';
+      readoutHtml += '<span style="color:#ef4444;">氧气进入，二氧化碳排出</span>';
+    } else {
+      statusText = '呼气 (Exhale)';
+      pressure = '肺内气压 > 外界大气压';
+      readoutHtml += '膈肌与肋间肌：<b>舒张</b><br>';
+      readoutHtml += '胸廓容积：<b>减小</b><br>';
+      readoutHtml += '<span style="color:#3b82f6;">气体被压出肺部</span>';
+    }
+    
+    document.getElementById('readout').innerHTML = readoutHtml;
+    
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === (state.isInhale ? 'inhale' : 'exhale'));
+    }
+
+    // 状态大字
+    ctx.fillStyle = state.isInhale ? '#ef4444' : '#3b82f6';
+    ctx.font = 'bold 24px "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(statusText, cssW / 2, 50);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '16px "PingFang SC", sans-serif';
+    ctx.fillText(pressure, cssW / 2, 80);
+  }
+
+  var INFO = {
+    trachea: {
+      title: '气管与支气管',
+      meta: '呼吸道的一部分',
+      desc: '气管是连接喉与肺的管道，向下分为左右支气管。气管和支气管的内表面覆盖着纤毛，纤毛不停地向喉部摆动，把吸入的灰尘、细菌等和黏液一起送到喉部，通过咳嗽排出体外。它们不仅是气体的通道，还能温暖、湿润和清洁吸入的空气。'
+    },
+    lung: {
+      title: '肺',
+      meta: '呼吸系统的主要器官',
+      desc: '肺位于胸腔内，左右各一个。左肺两叶，右肺三叶。肺是气体交换的主要场所。肺由大量的肺泡组成，肺泡是进行气体交换的基本单位。吸气时，肺随胸廓的扩大而扩张；呼气时，肺随胸廓的缩小而回缩。'
+    },
+    diaphragm: {
+      title: '膈肌',
+      meta: '主要的呼吸肌',
+      desc: '膈肌位于胸腔与腹腔之间，是一块圆顶状的肌肉。在吸气时，膈肌收缩，膈顶下降，胸廓的上下径增大，使胸腔容积变大，肺随之扩张；在呼气时，膈肌舒张，膈顶回升，胸廓容积缩小，肺随之回缩。'
+    },
+    alveoli: {
+      title: '肺泡与气体交换',
+      meta: '肺泡处的气体交换',
+      desc: '肺泡外面包绕着丰富的毛细血管，肺泡壁和毛细血管壁都只由一层扁平的上皮细胞构成，有利于气体交换。吸气时，空气中的氧气透过肺泡壁和毛细血管壁进入血液；同时，血液中的二氧化碳也透过毛细血管壁和肺泡壁进入肺泡，随后随着呼气排出体外。'
+    }
+  };
+
+  function showInfo(key) {
+    var info = INFO[key];
+    if (!info) return;
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoBody').textContent = info.desc;
+    document.getElementById('infoMeta').innerHTML = info.meta;
+    var panel = document.getElementById('infoPanel');
+    panel.classList.add('show');
+    panel.scrollTop = 0;
+    
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  }
+
+  document.getElementById('infoClose').addEventListener('click', function() {
+    document.getElementById('infoPanel').classList.remove('show');
+    activeSelection = null;
+  });
+
+  function hitTest(px, py) {
+    var lx = (px - cssW/2) / view.scale;
+    var ly = (py - cssH*0.45) / view.scale;
+
+    var state = getBreathState();
+    var exp = state.expansion;
+
+    // 气管
+    if (Math.abs(lx) < 20 && ly < -20 && ly > -200) return 'trachea';
+
+    // 肺
+    var lungW = 70 + exp * 30;
+    var lungH = 120 + exp * 40;
+    var lungXOffset = 30 + exp * 15;
+    
+    if (Math.abs(lx) > 10 && Math.abs(lx) < lungXOffset + lungW && Math.abs(ly) < lungH) {
+      if (Math.abs(lx + lungXOffset) < lungW || Math.abs(lx - lungXOffset) < lungW) {
+        return 'lung';
+      }
+    }
+
+    // 膈肌
+    var chestHeight = 300 + exp * 40;
+    var diaphragmY = chestHeight/2 + 20 - exp * 40;
+    if (ly > diaphragmY - 30 && ly < diaphragmY + 40 && Math.abs(lx) < chestHeight) {
+      return 'diaphragm';
+    }
+
+    return null;
+  }
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.4, Math.min(2.5, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var hit = hitTest(px, py);
+      activeSelection = hit;
+      
+      if (hit) {
+        showInfo(hit);
+      } else {
+        document.getElementById('infoPanel').classList.remove('show');
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  document.getElementById('bpmRange').addEventListener('input', function(e) {
+    bpm = parseInt(e.target.value, 10);
+    document.getElementById('bpmVal').textContent = bpm;
+  });
+
+  document.getElementById('labelToggle').addEventListener('change', function(e) { showLabel = e.target.checked; });
+  document.getElementById('gasToggle').addEventListener('change', function(e) { showGas = e.target.checked; });
+
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function() {
+    playing = !playing;
+    playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    bpm = 15;
+    playing = true;
+    breathPhase = 0;
+    document.getElementById('bpmRange').value = 15;
+    document.getElementById('bpmVal').textContent = '15';
+    playBtn.textContent = '⏸ 暂停';
+    activeSelection = null;
+    document.getElementById('infoPanel').classList.remove('show');
+    
+    view.cx = 0; view.cy = 0; view.scale = 1;
+    targetView.cx = 0; targetView.cy = 0; targetView.scale = 1;
+    initParticles();
+  });
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+
+    if (playing) {
+      // 呼吸周期 = 60 / bpm 秒
+      var cycleTime = 60 / bpm;
+      breathPhase += dt / cycleTime;
+    }
+    
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    updateParticles(dt);
+    draw();
+  }
+
+  resize();
+  targetView.cx = 0; targetView.cy = 0; targetView.scale = 1;
+  view.cx = 0; view.cy = 0; view.scale = 1;
+  
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
