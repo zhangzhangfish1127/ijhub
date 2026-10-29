@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>动植物细胞结构 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; }
+  .info-panel {
+    margin: 10px 0 0;
+    background: #f8f9fb;
+    border: 1px solid #e0e4ea;
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #333;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  .info-panel.show { display: block; }
+  .info-panel h3 {
+    margin: 0 0 8px;
+    color: #2c3e50;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .info-panel h3 .close-x {
+    cursor: pointer;
+    color: #aaa;
+    font-size: 20px;
+    font-weight: normal;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .info-panel h3 .close-x:hover { color: #e74c3c; }
+  .info-panel p {
+    margin: 0;
+    line-height: 1.8;
+    font-size: 13px;
+    text-indent: 2em;
+    color: #444;
+  }
+  .info-panel .meta {
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e8ebef;
+    text-indent: 0;
+    line-height: 1.6;
+  }
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>动植物细胞结构</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>结构名称</th><th>植物细胞</th><th>动物细胞</th></tr></thead>
+    <tbody>
+      <tr data-id="wall"><td>细胞壁</td><td>有</td><td>无</td></tr>
+      <tr data-id="membrane"><td>细胞膜</td><td>有</td><td>有</td></tr>
+      <tr data-id="cytoplasm"><td>细胞质</td><td>有</td><td>有</td></tr>
+      <tr data-id="nucleus"><td>细胞核</td><td>有</td><td>有</td></tr>
+      <tr data-id="mitochondria"><td>线粒体</td><td>有</td><td>有</td></tr>
+      <tr data-id="chloroplast"><td>叶绿体</td><td>有</td><td>无</td></tr>
+      <tr data-id="vacuole"><td>液泡</td><td>有</td><td>无</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <div class="row">
+    <input type="radio" name="cellType" id="typePlant" value="plant" checked>
+    <label for="typePlant" style="margin:0;">植物细胞 (洋葱鳞片叶)</label>
+  </div>
+  <div class="row">
+    <input type="radio" name="cellType" id="typeAnimal" value="animal">
+    <label for="typeAnimal" style="margin:0;">动物细胞 (人体口腔上皮)</label>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <input type="checkbox" id="labelToggle" checked>
+    <label for="labelToggle" style="margin:0;">显示结构名称</label>
+  </div>
+
+  <button id="resetBtn" class="secondary">↺ 重置视角</button>
+
+  <div class="readout" id="readout">
+    点击画布中的细胞器<br>可以查看详细说明<br><br>
+    <b>提示：</b>对比植物细胞与动物细胞的异同。
+  </div>
+  <div class="nav-hint">💡 支持双指缩放与拖拽平移</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <h3><span id="infoTitle"></span><span class="close-x" id="infoClose">×</span></h3>
+    <p id="infoBody"></p>
+    <div class="meta" id="infoMeta"></div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+
+  var cellType = 'plant'; // 'plant' or 'animal'
+  var showLabel = true;
+  var activeSelection = null;
+
+  // 定义细胞器相对位置（基于缩放后，相对于细胞中心）
+  // 方便统一做碰撞检测
+  var organelles = {};
+
+  function initLayout() {
+    if (cellType === 'plant') {
+      organelles = {
+        wall: { x: 0, y: 0, r: 220, hitType: 'box' }, // 外层
+        membrane: { x: 0, y: 0, r: 205, hitType: 'box' },
+        vacuole: { x: -40, y: 0, r: 110 },
+        nucleus: { x: 100, y: -60, r: 45 },
+        chloroplast1: { x: 80, y: 110, r: 25 },
+        chloroplast2: { x: -120, y: 100, r: 28 },
+        chloroplast3: { x: -110, y: -110, r: 22 },
+        chloroplast4: { x: 130, y: 20, r: 24 },
+        mitochondria1: { x: 150, y: -110, r: 20, angle: 0.5 },
+        mitochondria2: { x: -130, y: 150, r: 18, angle: -1.2 }
+      };
+    } else {
+      organelles = {
+        membrane: { x: 0, y: 0, r: 180, hitType: 'circle' },
+        nucleus: { x: -40, y: -30, r: 55 },
+        mitochondria1: { x: 80, y: -90, r: 22, angle: 0.8 },
+        mitochondria2: { x: -110, y: 80, r: 20, angle: -0.5 },
+        mitochondria3: { x: 100, y: 90, r: 18, angle: 1.5 }
+      };
+    }
+  }
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  // 圆角矩形
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  // 绘制线粒体
+  function drawMito(ctx, ox, oy, r, angle, isActive) {
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.rotate(angle);
+    
+    // 阴影
+    ctx.shadowColor = 'rgba(0,0,0,0.1)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+
+    // 线粒体外壳（椭圆）
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.6, r, 0, 0, TAU);
+    var grad = ctx.createRadialGradient(-r*0.5, -r*0.5, r*0.1, 0, 0, r*1.5);
+    grad.addColorStop(0, '#fca5a5'); // 浅红
+    grad.addColorStop(1, '#dc2626'); // 深红
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    if (isActive) {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#991b1b';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    
+    // 内部嵴（折线）
+    ctx.shadowColor = 'transparent'; // 取消阴影
+    ctx.strokeStyle = '#7f1d1d';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var i = -r*0.8; i <= r*0.8; i += r*0.4) {
+      ctx.moveTo(i, -r*0.6);
+      ctx.quadraticCurveTo(i + r*0.2, 0, i, r*0.6);
+    }
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // 绘制叶绿体
+  function drawChloro(ctx, ox, oy, r, isActive) {
+    ctx.save();
+    ctx.translate(ox, oy);
+    
+    // 阴影
+    ctx.shadowColor = 'rgba(0,0,0,0.1)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+
+    // 外壳
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.5, r, 0.5, 0, TAU);
+    var grad = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.1, 0, 0, r*1.5);
+    grad.addColorStop(0, '#86efac'); // 浅绿
+    grad.addColorStop(1, '#16a34a'); // 深绿
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    if (isActive) {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#166534';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    
+    // 内部基粒（小圆饼）
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#14532d';
+    for (var i = -1; i <= 1; i++) {
+      for (var j = -1; j <= 1; j++) {
+        if (i===0 && j===0) continue;
+        ctx.beginPath();
+        ctx.ellipse(i * r * 0.5, j * r * 0.4, r*0.2, r*0.1, 0.5, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // 绘制细胞核
+  function drawNucleus(ctx, ox, oy, r, isActive) {
+    ctx.save();
+    ctx.translate(ox, oy);
+    
+    ctx.shadowColor = 'rgba(0,0,0,0.15)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+
+    // 核膜
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, TAU);
+    var grad = ctx.createRadialGradient(-r*0.4, -r*0.4, r*0.1, 0, 0, r);
+    grad.addColorStop(0, '#c084fc'); // 浅紫
+    grad.addColorStop(1, '#9333ea'); // 深紫
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    if (isActive) {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#6b21a8';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // 核仁
+    ctx.shadowColor = 'transparent';
+    ctx.beginPath();
+    ctx.arc(r*0.2, -r*0.2, r*0.35, 0, TAU);
+    ctx.fillStyle = '#d8b4fe';
+    ctx.fill();
+    ctx.strokeStyle = '#7e22ce';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // 绘制液泡
+  function drawVacuole(ctx, ox, oy, r, isActive) {
+    ctx.save();
+    ctx.translate(ox, oy);
+    
+    // 液泡通常占据很大体积
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.4, r, -0.2, 0, TAU);
+    var grad = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.2, 0, 0, r*1.4);
+    grad.addColorStop(0, 'rgba(224, 242, 254, 0.8)'); // 极淡的蓝
+    grad.addColorStop(1, 'rgba(186, 230, 253, 0.5)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    if (isActive) {
+      ctx.strokeStyle = App.getTheme().ray3;
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // 细胞液水纹
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.beginPath();
+    ctx.ellipse(-r*0.4, -r*0.3, r*0.2, r*0.1, -0.5, 0, TAU);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function draw() {
+    var TH = App.getTheme();
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    var cx = cssW / 2;
+    var cy = cssH / 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(view.scale, view.scale);
+
+    if (cellType === 'plant') {
+      // === 植物细胞 ===
+      
+      // 1. 细胞壁
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.1)';
+      ctx.shadowBlur = 15;
+      ctx.shadowOffsetY = 5;
+      roundRect(-210, -160, 420, 320, 40);
+      ctx.fillStyle = '#fef3c7'; // 米黄
+      ctx.fill();
+      if (activeSelection === 'wall') {
+        ctx.strokeStyle = TH.ray3;
+        ctx.lineWidth = 6;
+      } else {
+        ctx.strokeStyle = '#d97706';
+        ctx.lineWidth = 6;
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // 2. 细胞膜
+      roundRect(-195, -145, 390, 290, 30);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fill();
+      if (activeSelection === 'membrane') {
+        ctx.strokeStyle = TH.ray3;
+        ctx.lineWidth = 4;
+      } else {
+        ctx.strokeStyle = '#fcd34d';
+        ctx.lineWidth = 3;
+      }
+      ctx.stroke();
+
+      // 3. 细胞质底色
+      ctx.save();
+      roundRect(-195, -145, 390, 290, 30);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(240, 253, 244, 0.6)'; // 极浅绿，代表细胞质基质
+      ctx.fill();
+      
+      // 4. 液泡
+      drawVacuole(ctx, organelles.vacuole.x, organelles.vacuole.y, organelles.vacuole.r, activeSelection === 'vacuole');
+
+      // 5. 细胞核
+      drawNucleus(ctx, organelles.nucleus.x, organelles.nucleus.y, organelles.nucleus.r, activeSelection === 'nucleus');
+
+      // 6. 叶绿体
+      drawChloro(ctx, organelles.chloroplast1.x, organelles.chloroplast1.y, organelles.chloroplast1.r, activeSelection === 'chloroplast');
+      drawChloro(ctx, organelles.chloroplast2.x, organelles.chloroplast2.y, organelles.chloroplast2.r, activeSelection === 'chloroplast');
+      drawChloro(ctx, organelles.chloroplast3.x, organelles.chloroplast3.y, organelles.chloroplast3.r, activeSelection === 'chloroplast');
+      drawChloro(ctx, organelles.chloroplast4.x, organelles.chloroplast4.y, organelles.chloroplast4.r, activeSelection === 'chloroplast');
+
+      // 7. 线粒体
+      drawMito(ctx, organelles.mitochondria1.x, organelles.mitochondria1.y, organelles.mitochondria1.r, organelles.mitochondria1.angle, activeSelection === 'mitochondria');
+      drawMito(ctx, organelles.mitochondria2.x, organelles.mitochondria2.y, organelles.mitochondria2.r, organelles.mitochondria2.angle, activeSelection === 'mitochondria');
+
+      ctx.restore(); // 解除裁剪
+
+      // 标签
+      if (showLabel) {
+        ctx.fillStyle = '#475569';
+        ctx.font = 'bold 12px "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('细胞壁', 0, -175);
+        ctx.fillText('液泡', organelles.vacuole.x, organelles.vacuole.y);
+        ctx.fillText('细胞核', organelles.nucleus.x, organelles.nucleus.y - organelles.nucleus.r - 10);
+        ctx.fillText('叶绿体', organelles.chloroplast2.x, organelles.chloroplast2.y + 35);
+      }
+
+    } else {
+      // === 动物细胞 ===
+      
+      // 1. 细胞膜
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.1)';
+      ctx.shadowBlur = 15;
+      ctx.shadowOffsetY = 5;
+      
+      ctx.beginPath();
+      // 不规则的圆
+      ctx.moveTo(0, -170);
+      ctx.bezierCurveTo(100, -180, 180, -100, 170, 20);
+      ctx.bezierCurveTo(160, 140, 80, 180, -20, 160);
+      ctx.bezierCurveTo(-140, 140, -180, 60, -160, -50);
+      ctx.bezierCurveTo(-140, -160, -80, -160, 0, -170);
+      ctx.closePath();
+      
+      var membGrad = ctx.createRadialGradient(0, 0, 100, 0, 0, 200);
+      membGrad.addColorStop(0, 'rgba(241, 245, 249, 0.8)');
+      membGrad.addColorStop(1, 'rgba(226, 232, 240, 0.9)');
+      ctx.fillStyle = membGrad;
+      ctx.fill();
+      
+      if (activeSelection === 'membrane') {
+        ctx.strokeStyle = TH.ray3;
+        ctx.lineWidth = 5;
+      } else {
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 4;
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // 裁剪到细胞膜内，画内部
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(0, -170);
+      ctx.bezierCurveTo(100, -180, 180, -100, 170, 20);
+      ctx.bezierCurveTo(160, 140, 80, 180, -20, 160);
+      ctx.bezierCurveTo(-140, 140, -180, 60, -160, -50);
+      ctx.bezierCurveTo(-140, -160, -80, -160, 0, -170);
+      ctx.closePath();
+      ctx.clip();
+
+      // 2. 细胞核
+      drawNucleus(ctx, organelles.nucleus.x, organelles.nucleus.y, organelles.nucleus.r, activeSelection === 'nucleus');
+
+      // 3. 线粒体
+      drawMito(ctx, organelles.mitochondria1.x, organelles.mitochondria1.y, organelles.mitochondria1.r, organelles.mitochondria1.angle, activeSelection === 'mitochondria');
+      drawMito(ctx, organelles.mitochondria2.x, organelles.mitochondria2.y, organelles.mitochondria2.r, organelles.mitochondria2.angle, activeSelection === 'mitochondria');
+      drawMito(ctx, organelles.mitochondria3.x, organelles.mitochondria3.y, organelles.mitochondria3.r, organelles.mitochondria3.angle, activeSelection === 'mitochondria');
+
+      // 4. 核糖体（小黑点）
+      ctx.fillStyle = '#94a3b8';
+      for(var i=0; i<30; i++) {
+        var rx = (Math.sin(i*12)*0.5 + 0.5) * 300 - 150;
+        var ry = (Math.cos(i*7)*0.5 + 0.5) * 300 - 150;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 2, 0, TAU);
+        ctx.fill();
+      }
+
+      ctx.restore(); // 解除裁剪
+
+      // 标签
+      if (showLabel) {
+        ctx.fillStyle = '#475569';
+        ctx.font = 'bold 12px "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('细胞膜', 0, -190);
+        ctx.fillText('细胞核', organelles.nucleus.x, organelles.nucleus.y - organelles.nucleus.r - 10);
+        ctx.fillText('线粒体', organelles.mitochondria1.x, organelles.mitochondria1.y - 30);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // =============== 交互与数据 ===============
+  var INFO = {
+    wall: { 
+      title: '细胞壁', 
+      meta: '植物细胞特有 · 主要成分是纤维素',
+      desc: '位于植物细胞的最外层，是一层透明的薄壁。它主要是由纤维素和果胶组成的，具有支持和保护细胞内部结构的作用。由于细胞壁的支撑，植物细胞通常具有比较规则的形状（如方形或多边形）。动物细胞没有细胞壁。' 
+    },
+    membrane: { 
+      title: '细胞膜', 
+      meta: '动植物细胞共有 · 极薄且紧贴细胞壁内侧',
+      desc: '在光学显微镜下不易看清。它的主要作用是保护细胞内部结构，同时控制物质的进出。它能够让有用的物质进入细胞，把其他废物排出细胞外，同时阻挡有害物质进入，保持细胞内部环境的相对稳定。' 
+    },
+    cytoplasm: { 
+      title: '细胞质', 
+      meta: '动植物细胞共有 · 液态胶状物',
+      desc: '细胞膜以内、细胞核以外的部分，充满着液态的细胞质。细胞质具有流动性，这有助于加快细胞与外界的物质交换。细胞质里含有多种细胞器（如线粒体、叶绿体等），是细胞进行多种生命活动的重要场所。' 
+    },
+    nucleus: { 
+      title: '细胞核', 
+      meta: '动植物细胞共有 · 细胞的控制中心',
+      desc: '通常呈球形或椭圆形，内含遗传物质（DNA）。细胞核是细胞生命活动的控制中心，它控制着生物的发育和遗传。在细胞分裂时，细胞核会一分为二，保证新生成的细胞具有与原细胞相同的遗传信息。' 
+    },
+    mitochondria: { 
+      title: '线粒体', 
+      meta: '动植物细胞共有 · 动力车间',
+      desc: '呈椭球形或棒状，内部有许多折皱（嵴）。线粒体是细胞进行呼吸作用的场所，它可以将有机物中储存的化学能释放出来，供细胞生命活动利用。因为它是提供能量的“动力车间”，所以新陈代谢旺盛的细胞（如心肌细胞）中，线粒体数量特别多。' 
+    },
+    chloroplast: { 
+      title: '叶绿体', 
+      meta: '植物细胞特有 · 绿色植物进行光合作用的场所',
+      desc: '主要存在于植物的绿色部分（如叶肉细胞）。呈扁平的椭球形或球形，含有绿色的叶绿素。叶绿体是植物进行光合作用的场所，它能利用光能，将二氧化碳和水转化成储存着能量的有机物，并释放出氧气。动物细胞和植物的非绿色部分（如洋葱鳞片叶表皮细胞）没有叶绿体。' 
+    },
+    vacuole: { 
+      title: '液泡', 
+      meta: '植物细胞特有 · 含有细胞液',
+      desc: '位于细胞质中，是植物细胞特有的结构。成熟植物细胞中通常有一个或多个大液泡，占据细胞体积的大部分（中央大液泡）。液泡内的液体叫细胞液，溶解着糖分、无机盐、色素（如花青素）和蛋白质等多种物质。我们平时吃的水果的甜味、酸味，以及花瓣的颜色，大多与液泡有关。' 
+    }
+  };
+
+  var panel = document.getElementById('infoPanel');
+  
+  function showInfo(key) {
+    var info = INFO[key];
+    if (!info) return;
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoBody').textContent = info.desc;
+    document.getElementById('infoMeta').innerHTML = info.meta;
+    panel.classList.add('show');
+    panel.scrollTop = 0;
+    
+    // 表格高亮
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-id') === key);
+    }
+  }
+
+  document.getElementById('infoClose').addEventListener('click', function() {
+    panel.classList.remove('show');
+    activeSelection = null;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  });
+
+  // 碰撞检测
+  function hitTest(px, py) {
+    var cx = cssW / 2;
+    var cy = cssH / 2;
+    
+    // 坐标逆变换
+    var lx = (px - cx) / view.scale;
+    var ly = (py - cy) / view.scale;
+
+    // 从上层往下层检测
+    if (cellType === 'plant') {
+      // 细胞核
+      if (Math.hypot(lx - organelles.nucleus.x, ly - organelles.nucleus.y) < organelles.nucleus.r) {
+        return 'nucleus';
+      }
+      // 叶绿体 (检查4个)
+      var chloros = ['chloroplast1','chloroplast2','chloroplast3','chloroplast4'];
+      for(var i=0; i<chloros.length; i++) {
+        var c = organelles[chloros[i]];
+        if (Math.hypot(lx - c.x, ly - c.y) < c.r * 1.4) return 'chloroplast';
+      }
+      // 线粒体
+      var mitos = ['mitochondria1','mitochondria2'];
+      for(var i=0; i<mitos.length; i++) {
+        var m = organelles[mitos[i]];
+        if (Math.hypot(lx - m.x, ly - m.y) < m.r * 1.6) return 'mitochondria';
+      }
+      // 液泡
+      var v = organelles.vacuole;
+      var dx = (lx - v.x) / 1.4;
+      var dy = (ly - v.y) / 1.0;
+      if (Math.hypot(dx, dy) < v.r) return 'vacuole';
+
+      // 细胞膜 (在细胞壁内部)
+      if (lx > -195 && lx < 195 && ly > -145 && ly < 145) {
+        if (lx < -185 || lx > 185 || ly < -135 || ly > 135) return 'membrane';
+      }
+      // 细胞壁
+      if (lx > -210 && lx < 210 && ly > -160 && ly < 160) return 'wall';
+      
+    } else {
+      // 动物细胞
+      // 细胞核
+      if (Math.hypot(lx - organelles.nucleus.x, ly - organelles.nucleus.y) < organelles.nucleus.r) {
+        return 'nucleus';
+      }
+      // 线粒体
+      var mitos = ['mitochondria1','mitochondria2','mitochondria3'];
+      for(var i=0; i<mitos.length; i++) {
+        var m = organelles[mitos[i]];
+        if (Math.hypot(lx - m.x, ly - m.y) < m.r * 1.6) return 'mitochondria';
+      }
+      
+      // 细胞膜边缘判定 (近似)
+      if (Math.hypot(lx, ly) > 150) {
+         if (Math.hypot(lx, ly) < 190) return 'membrane';
+      }
+    }
+    
+    // 如果点在内部，未点中细胞器，返回细胞质
+    if (cellType === 'plant') {
+      if (lx > -195 && lx < 195 && ly > -145 && ly < 145) return 'cytoplasm';
+    } else {
+      if (Math.hypot(lx, ly) < 170) return 'cytoplasm';
+    }
+
+    return null;
+  }
+
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.4, Math.min(3.0, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var hit = hitTest(px, py);
+      activeSelection = hit;
+      
+      if (hit) {
+        showInfo(hit);
+      } else {
+        panel.classList.remove('show');
+        var rows = document.querySelectorAll('#caseTable tbody tr');
+        for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  // 表格点击联动
+  var trs = document.querySelectorAll('#caseTable tbody tr');
+  for (var ti = 0; ti < trs.length; ti++) {
+    (function(tr) {
+      tr.addEventListener('click', function() {
+        var id = tr.getAttribute('data-id');
+        activeSelection = id;
+        showInfo(id);
+        
+        // 如果当前是植物细胞，点击了叶绿体或液泡，自动切换？不用，保持当前视图
+        // 但如果是动物细胞且点击了叶绿体/液泡，需要提示
+        if (cellType === 'animal' && (id === 'chloroplast' || id === 'vacuole' || id === 'wall')) {
+           // 可以给个抖动，但这里直接高亮文字即可
+        }
+      });
+    })(trs[ti]);
+  }
+
+  // 单选切换
+  document.getElementById('typePlant').addEventListener('change', function(e) {
+    if (e.target.checked) {
+      cellType = 'plant';
+      initLayout();
+      activeSelection = null;
+      panel.classList.remove('show');
+      var rows = document.querySelectorAll('#caseTable tbody tr');
+      for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+    }
+  });
+  
+  document.getElementById('typeAnimal').addEventListener('change', function(e) {
+    if (e.target.checked) {
+      cellType = 'animal';
+      initLayout();
+      activeSelection = null;
+      panel.classList.remove('show');
+      var rows = document.querySelectorAll('#caseTable tbody tr');
+      for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+    }
+  });
+
+  document.getElementById('labelToggle').addEventListener('change', function(e) {
+    showLabel = e.target.checked;
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    targetView.cx = 0;
+    targetView.cy = 0;
+    targetView.scale = 1;
+    view.cx = 0;
+    view.cy = 0;
+    view.scale = 1;
+    panel.classList.remove('show');
+    activeSelection = null;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for(var i=0; i<rows.length; i++) rows[i].classList.remove('active');
+  });
+
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    draw();
+  }
+
+  resize();
+  initLayout();
+  targetView.cx = 0; targetView.cy = 0; targetView.scale = 1;
+  view.cx = 0; view.cy = 0; view.scale = 1;
+  
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
