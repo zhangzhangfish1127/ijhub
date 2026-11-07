@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>动植物分类系统 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  #readout b { color: #3b82f6; }
+  .stage canvas { touch-action: none; }
+  .lab-main { display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; position: relative; }
+  
+  /* 隐藏的 HTML 表格，用于导出或作为备用视图，但这里我们主要用 Canvas 渲染表格 */
+  #tableContainer {
+    display: none;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: #fff;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+  .taxonomy-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .taxonomy-table th, .taxonomy-table td {
+    border: 1px solid #e2e8f0;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .taxonomy-table th {
+    background: #f8fafc;
+    color: #1e293b;
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+  }
+  .taxonomy-table tr:nth-child(even) { background: #f1f5f9; }
+  .taxonomy-table tr:hover { background: #e0f2fe; }
+  .taxonomy-table .highlight { background: #fef08a; font-weight: bold; }
+
+  /* 控制面板按钮组 */
+  .view-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .view-toggle button {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    color: #475569;
+  }
+  .view-toggle button.active {
+    background: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+  }
+
+  .specimen-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .specimen-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    cursor: pointer;
+  }
+  .specimen-btn:hover { background: #e2e8f0; }
+  .specimen-btn.active { background: #10b981; color: #fff; border-color: #10b981; }
+
+  .nav-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>动植物分类系统</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>层级</th><th>名称</th></tr></thead>
+    <tbody id="pathTable">
+      <tr><td>界</td><td>—</td></tr>
+      <tr><td>门</td><td>—</td></tr>
+      <tr><td>纲</td><td>—</td></tr>
+      <tr><td>目</td><td>—</td></tr>
+      <tr><td>科</td><td>—</td></tr>
+      <tr><td>属</td><td>—</td></tr>
+      <tr><td>种</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <div class="view-toggle">
+    <button id="btnMindmap" class="active">思维导图</button>
+    <button id="btnTable">数据表格</button>
+  </div>
+
+  <div class="row">
+    <label for="rangeSelect" style="margin:0;">分类范围</label>
+    <select id="rangeSelect" style="margin-left:auto;">
+      <option value="junior">仅初中考点 (图1,2)</option>
+      <option value="full">全部分类层级 (界门纲目科属种)</option>
+    </select>
+  </div>
+
+  <div style="font-size:13px; color:#64748b; margin-top:16px; font-weight:bold;">代表动植物 (点击查看分类路径)</div>
+  <div class="specimen-list" id="specimenList">
+    <!-- JS 动态生成 -->
+  </div>
+
+  <div class="readout" id="readout" style="margin-top:16px;">
+    点击画布中的节点或上方物种<br>查看其完整的分类学归属。
+  </div>
+  <div class="nav-hint">💡 支持双指缩放与拖拽平移 (表格视图可上下滚动)</div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage" id="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div id="tableContainer">
+      <table class="taxonomy-table" id="taxTable">
+        <thead>
+          <tr>
+            <th>界</th><th>门</th><th>纲</th><th>目</th><th>科</th><th>属</th><th>种 (代表生物)</th>
+          </tr>
+        </thead>
+        <tbody id="taxTbody">
+          <!-- JS 动态生成 -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var TAU = Math.PI * 2;
+
+  var cssW = 800, cssH = 500, dpr = 1;
+  var view = { cx: 0, cy: 0, scale: 1 };
+  var targetView = { cx: 0, cy: 0, scale: 1 };
+
+  var viewMode = 'mindmap'; // 'mindmap' | 'table'
+  var rangeMode = 'junior'; // 'junior' | 'full'
+  var activeSpecimenId = null;
+
+  // 节点点击状态
+  var hoveredNode = null;
+
+  // ==========================================
+  // 1. 数据构建
+  // ==========================================
+  // 每个物种代表一条从“界”到“种”的完整路径
+  var SPECIMENS = [
+    // ================= 植物界 Plantae =================
+    // 藻类
+    { id: 'spirulina', name: '螺旋藻', kingdom: '植物界', phylum: '蓝藻门', class: '蓝藻纲', order: '颤藻目', family: '颤藻科', genus: '螺旋藻属', species: '螺旋藻', junior: true },
+    { id: 'spirogyra', name: '水绵', kingdom: '植物界', phylum: '绿藻门', class: '接合藻纲', order: '双星藻目', family: '双星藻科', genus: '水绵属', species: '水绵', junior: false },
+    { id: 'kelp', name: '海带', kingdom: '植物界', phylum: '褐藻门', class: '海带纲', order: '海带目', family: '海带科', genus: '海带属', species: '海带', junior: false },
+    // 苔藓植物
+    { id: 'liverwort', name: '地钱', kingdom: '植物界', phylum: '苔藓植物门', class: '地钱纲', order: '地钱目', family: '地钱科', genus: '地钱属', species: '地钱', junior: false },
+    { id: 'moss', name: '葫芦藓', kingdom: '植物界', phylum: '苔藓植物门', class: '藓纲', order: '葫芦藓目', family: '葫芦藓科', genus: '葫芦藓属', species: '葫芦藓', junior: true },
+    { id: 'true_moss', name: '真藓', kingdom: '植物界', phylum: '苔藓植物门', class: '藓纲', order: '真藓目', family: '真藓科', genus: '真藓属', species: '真藓', junior: false },
+    // 蕨类与石松类
+    { id: 'lycopodium', name: '石松', kingdom: '植物界', phylum: '蕨类植物门', class: '石松纲', order: '石松目', family: '石松科', genus: '石松属', species: '石松', junior: false },
+    { id: 'horsetail', name: '木贼', kingdom: '植物界', phylum: '蕨类植物门', class: '木贼纲', order: '木贼目', family: '木贼科', genus: '木贼属', species: '木贼', junior: false },
+    { id: 'fern', name: '肾蕨', kingdom: '植物界', phylum: '蕨类植物门', class: '木贼纲', order: '水龙骨目', family: '肾蕨科', genus: '肾蕨属', species: '肾蕨', junior: true },
+    { id: 'polypody', name: '瓦韦', kingdom: '植物界', phylum: '蕨类植物门', class: '木贼纲', order: '水龙骨目', family: '水龙骨科', genus: '瓦韦属', species: '瓦韦', junior: false },
+    // 裸子植物
+    { id: 'cycad', name: '苏铁', kingdom: '植物界', phylum: '裸子植物门', class: '苏铁纲', order: '苏铁目', family: '苏铁科', genus: '苏铁属', species: '苏铁', junior: false },
+    { id: 'ginkgo', name: '银杏', kingdom: '植物界', phylum: '裸子植物门', class: '银杏纲', order: '银杏目', family: '银杏科', genus: '银杏属', species: '银杏', junior: true },
+    { id: 'pine', name: '马尾松', kingdom: '植物界', phylum: '裸子植物门', class: '松柏纲', order: '松柏目', family: '松科', genus: '松属', species: '马尾松', junior: false },
+    { id: 'arborvitae', name: '侧柏', kingdom: '植物界', phylum: '裸子植物门', class: '松柏纲', order: '松柏目', family: '柏科', genus: '侧柏属', species: '侧柏', junior: false },
+    { id: 'gnetum', name: '买麻藤', kingdom: '植物界', phylum: '裸子植物门', class: '买麻藤纲', order: '买麻藤目', family: '买麻藤科', genus: '买麻藤属', species: '买麻藤', junior: false },
+    // 被子植物 - 基部
+    { id: 'amborella', name: '无油樟', kingdom: '植物界', phylum: '被子植物门', class: '基部被子植物', order: '无油樟目', family: '无油樟科', genus: '无油樟属', species: '无油樟', junior: false },
+    { id: 'waterlily', name: '睡莲', kingdom: '植物界', phylum: '被子植物门', class: '基部被子植物', order: '睡莲目', family: '睡莲科', genus: '睡莲属', species: '睡莲', junior: false },
+    { id: 'magnolia', name: '玉兰', kingdom: '植物界', phylum: '被子植物门', class: '基部被子植物', order: '木兰目', family: '木兰科', genus: '玉兰属', species: '玉兰', junior: false },
+    { id: 'pepper', name: '胡椒', kingdom: '植物界', phylum: '被子植物门', class: '基部被子植物', order: '胡椒目', family: '胡椒科', genus: '胡椒属', species: '胡椒', junior: false },
+    // 被子植物 - 单子叶植物
+    { id: 'rice', name: '水稻', kingdom: '植物界', phylum: '被子植物门', class: '单子叶植物', order: '禾本目', family: '禾本科', genus: '稻属', species: '水稻', junior: false },
+    { id: 'corn', name: '玉米', kingdom: '植物界', phylum: '被子植物门', class: '单子叶植物', order: '禾本目', family: '禾本科', genus: '玉蜀黍属', species: '玉米', junior: true },
+    { id: 'wheat', name: '小麦', kingdom: '植物界', phylum: '被子植物门', class: '单子叶植物', order: '禾本目', family: '禾本科', genus: '小麦属', species: '小麦', junior: false },
+    { id: 'orchid', name: '蝴蝶兰', kingdom: '植物界', phylum: '被子植物门', class: '单子叶植物', order: '兰目', family: '兰科', genus: '蝴蝶兰属', species: '蝴蝶兰', junior: false },
+    { id: 'lily', name: '百合', kingdom: '植物界', phylum: '被子植物门', class: '单子叶植物', order: '百合目', family: '百合科', genus: '百合属', species: '百合', junior: false },
+    { id: 'palm', name: '棕榈', kingdom: '植物界', phylum: '被子植物门', class: '单子叶植物', order: '棕榈目', family: '棕榈科', genus: '棕榈属', species: '棕榈', junior: false },
+    // 被子植物 - 真双子叶植物
+    { id: 'buttercup', name: '毛茛', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物', order: '毛茛目', family: '毛茛科', genus: '毛茛属', species: '毛茛', junior: false },
+    { id: 'peach', name: '桃树', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物', order: '蔷薇目', family: '蔷薇科', genus: '李属', species: '桃', junior: true },
+    { id: 'rose', name: '月季', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物', order: '蔷薇目', family: '蔷薇科', genus: '蔷薇属', species: '月季', junior: false },
+    { id: 'soybean', name: '大豆', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物', order: '豆目', family: '豆科', genus: '大豆属', species: '大豆', junior: false },
+    { id: 'cotton', name: '棉花', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物', order: '锦葵目', family: '锦葵科', genus: '棉属', species: '棉花', junior: false },
+    { id: 'cabbage', name: '白菜', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物', order: '十字花目', family: '十字花科', genus: '芸苔属', species: '白菜', junior: false },
+    { id: 'sunflower', name: '向日葵', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物(超菊类)', order: '菊目', family: '菊科', genus: '向日葵属', species: '向日葵', junior: false },
+    { id: 'mint', name: '薄荷', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物(超菊类)', order: '唇形目', family: '唇形科', genus: '薄荷属', species: '薄荷', junior: false },
+    { id: 'tomato', name: '番茄', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物(超菊类)', order: '茄目', family: '茄科', genus: '茄属', species: '番茄', junior: false },
+    { id: 'oak', name: '栎树', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物(超蔷薇类)', order: '壳斗目', family: '壳斗科', genus: '栎属', species: '栎树', junior: false },
+    { id: 'pumpkin', name: '南瓜', kingdom: '植物界', phylum: '被子植物门', class: '真双子叶植物(超蔷薇类)', order: '葫芦目', family: '葫芦科', genus: '南瓜属', species: '南瓜', junior: false },
+
+    // ================= 动物界 Animalia - 无脊椎动物 =================
+    // 海绵动物门
+    { id: 'sponge', name: '浴海绵', kingdom: '动物界', phylum: '海绵动物门', class: '寻常海绵纲', order: '海绵目', family: '海绵科', genus: '海绵属', species: '浴海绵', junior: false },
+    // 刺胞动物门
+    { id: 'hydra', name: '水螅', kingdom: '动物界', phylum: '刺胞动物门', class: '水螅纲', order: '水螅目', family: '水螅科', genus: '水螅属', species: '水螅', junior: true },
+    { id: 'jellyfish', name: '海月水母', kingdom: '动物界', phylum: '刺胞动物门', class: '钵水母纲', order: '海月水母目', family: '海月水母科', genus: '海月水母属', species: '海月水母', junior: false },
+    { id: 'coral', name: '造礁珊瑚', kingdom: '动物界', phylum: '刺胞动物门', class: '珊瑚纲', order: '石珊瑚目', family: '珊瑚科', genus: '珊瑚属', species: '造礁珊瑚', junior: false },
+    // 扁形动物门
+    { id: 'planaria', name: '涡虫', kingdom: '动物界', phylum: '扁形动物门', class: '涡虫纲', order: '三肠目', family: '涡虫科', genus: '涡虫属', species: '涡虫', junior: true },
+    { id: 'fluke', name: '血吸虫', kingdom: '动物界', phylum: '扁形动物门', class: '吸虫纲', order: '复殖目', family: '裂体科', genus: '裂体属', species: '日本血吸虫', junior: false },
+    // 线形动物门
+    { id: 'ascaris', name: '蛔虫', kingdom: '动物界', phylum: '线虫动物门', class: '线虫纲', order: '蛔目', family: '蛔科', genus: '蛔属', species: '蛔虫', junior: true },
+    // 轮形动物门
+    { id: 'rotifer', name: '轮虫', kingdom: '动物界', phylum: '轮形动物门', class: '单巢纲', order: '游泳目', family: '臂尾轮科', genus: '臂尾轮属', species: '萼花臂尾轮虫', junior: false },
+    // 环节动物门
+    { id: 'earthworm', name: '蚯蚓', kingdom: '动物界', phylum: '环节动物门', class: '寡毛纲', order: '后孔寡毛目', family: '巨蚓科', genus: '环毛蚓属', species: '蚯蚓', junior: true },
+    { id: 'leech', name: '水蛭', kingdom: '动物界', phylum: '环节动物门', class: '蛭纲', order: '无吻蛭目', family: '医蛭科', genus: '医蛭属', species: '医蛭', junior: false },
+    // 软体动物门
+    { id: 'snail', name: '蜗牛', kingdom: '动物界', phylum: '软体动物门', class: '腹足纲', order: '柄眼目', family: '大蜗牛科', genus: '蜗牛属', species: '蜗牛', junior: true },
+    { id: 'clam', name: '文蛤', kingdom: '动物界', phylum: '软体动物门', class: '双壳纲', order: '帘蛤目', family: '帘蛤科', genus: '文蛤属', species: '文蛤', junior: false },
+    { id: 'octopus', name: '章鱼', kingdom: '动物界', phylum: '软体动物门', class: '头足纲', order: '八腕目', family: '章鱼科', genus: '章鱼属', species: '章鱼', junior: false },
+    { id: 'squid', name: '乌贼', kingdom: '动物界', phylum: '软体动物门', class: '头足纲', order: '乌贼目', family: '乌贼科', genus: '乌贼属', species: '金乌贼', junior: false },
+    // 节肢动物门
+    { id: 'locust', name: '蝗虫', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '直翅目', family: '蝗科', genus: '飞蝗属', species: '东亚飞蝗', junior: true },
+    { id: 'beetle', name: '瓢虫', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '鞘翅目', family: '瓢虫科', genus: '瓢虫属', species: '七星瓢虫', junior: false },
+    { id: 'butterfly', name: '蝴蝶', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '鳞翅目', family: '凤蝶科', genus: '凤蝶属', species: '金凤蝶', junior: false },
+    { id: 'bee', name: '蜜蜂', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '膜翅目', family: '蜜蜂科', genus: '蜜蜂属', species: '意大利蜂', junior: false },
+    { id: 'ant', name: '蚂蚁', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '膜翅目', family: '蚁科', genus: '弓背蚁属', species: '日本弓背蚁', junior: false },
+    { id: 'mosquito', name: '蚊子', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '双翅目', family: '蚊科', genus: '伊蚊属', species: '白纹伊蚊', junior: false },
+    { id: 'stinkbug', name: '蝽', kingdom: '动物界', phylum: '节肢动物门', class: '昆虫纲', order: '半翅目', family: '蝽科', genus: '茶翅蝽属', species: '茶翅蝽', junior: false },
+    { id: 'spider', name: '园蛛', kingdom: '动物界', phylum: '节肢动物门', class: '蛛形纲', order: '蜘蛛目', family: '园蛛科', genus: '园蛛属', species: '大腹园蛛', junior: false },
+    { id: 'scorpion', name: '蝎子', kingdom: '动物界', phylum: '节肢动物门', class: '蛛形纲', order: '蝎目', family: '钳蝎科', genus: '正钳蝎属', species: '东亚钳蝎', junior: false },
+    { id: 'tick', name: '蜱', kingdom: '动物界', phylum: '节肢动物门', class: '蛛形纲', order: '蜱螨目', family: '硬蜱科', genus: '硬蜱属', species: '全沟硬蜱', junior: false },
+    { id: 'shrimp', name: '对虾', kingdom: '动物界', phylum: '节肢动物门', class: '甲壳纲', order: '十足目', family: '对虾科', genus: '对虾属', species: '对虾', junior: false },
+    { id: 'crab', name: '梭子蟹', kingdom: '动物界', phylum: '节肢动物门', class: '甲壳纲', order: '十足目', family: '梭子蟹科', genus: '梭子蟹属', species: '三疣梭子蟹', junior: false },
+    { id: 'centipede', name: '蜈蚣', kingdom: '动物界', phylum: '节肢动物门', class: '多足纲', order: '蜈蚣目', family: '蜈蚣科', genus: '蜈蚣属', species: '少棘蜈蚣', junior: false },
+    { id: 'millipede', name: '马陆', kingdom: '动物界', phylum: '节肢动物门', class: '多足纲', order: '马陆目', family: '圆马陆科', genus: '马陆属', species: '马陆', junior: false },
+    // 苔藓动物门
+    { id: 'bryozoan', name: '苔藓虫', kingdom: '动物界', phylum: '苔藓动物门', class: '裸唇纲', order: '唇口目', family: '草苔虫科', genus: '草苔虫属', species: '多室草苔虫', junior: false },
+    // 棘皮动物门
+    { id: 'starfish', name: '海星', kingdom: '动物界', phylum: '棘皮动物门', class: '海星纲', order: '钳棘目', family: '海盘车科', genus: '海盘车属', species: '海星', junior: true },
+    { id: 'urchin', name: '海胆', kingdom: '动物界', phylum: '棘皮动物门', class: '海胆纲', order: '拱齿目', family: '球海胆科', genus: '球海胆属', species: '光棘球海胆', junior: false },
+    { id: 'seacucumber', name: '海参', kingdom: '动物界', phylum: '棘皮动物门', class: '海参纲', order: '楯手目', family: '海参科', genus: '海参属', species: '仿刺参', junior: false },
+
+    // ================= 动物界 Animalia - 脊索动物门 =================
+    // 软骨鱼纲
+    { id: 'shark', name: '鲨鱼', kingdom: '动物界', phylum: '脊索动物门', class: '软骨鱼纲', order: '真鲨目', family: '真鲨科', genus: '真鲨属', species: '鲨鱼', junior: false },
+    // 辐鳍鱼纲
+    { id: 'carp', name: '鲤鱼', kingdom: '动物界', phylum: '脊索动物门', class: '辐鳍鱼纲', order: '鲤形目', family: '鲤科', genus: '鲤属', species: '鲤鱼', junior: true },
+    { id: 'zebrafish', name: '斑马鱼', kingdom: '动物界', phylum: '脊索动物门', class: '辐鳍鱼纲', order: '鲤形目', family: '鲤科', genus: '鲐属', species: '斑马鱼', junior: false },
+    { id: 'perch', name: '鲈鱼', kingdom: '动物界', phylum: '脊索动物门', class: '辐鳍鱼纲', order: '鲈形目', family: '鮨科', genus: '花鲈属', species: '鲈鱼', junior: false },
+    // 两栖纲
+    { id: 'frog', name: '青蛙', kingdom: '动物界', phylum: '脊索动物门', class: '两栖纲', order: '无尾目', family: '蛙科', genus: '侧褶蛙属', species: '黑斑侧褶蛙', junior: true },
+    { id: 'salamander', name: '大鲵(娃娃鱼)', kingdom: '动物界', phylum: '脊索动物门', class: '两栖纲', order: '有尾目', family: '隐鳃鲵科', genus: '大鲵属', species: '大鲵', junior: false },
+    // 爬行纲
+    { id: 'turtle', name: '乌龟', kingdom: '动物界', phylum: '脊索动物门', class: '爬行纲', order: '龟鳖目', family: '龟科', genus: '乌龟属', species: '乌龟', junior: true },
+    { id: 'snake', name: '王锦蛇', kingdom: '动物界', phylum: '脊索动物门', class: '爬行纲', order: '有鳞目', family: '游蛇科', genus: '锦蛇属', species: '王锦蛇', junior: false },
+    { id: 'crocodile', name: '湾鳄', kingdom: '动物界', phylum: '脊索动物门', class: '爬行纲', order: '鳄目', family: '鳄科', genus: '鳄属', species: '湾鳄', junior: false },
+    // 鸟纲
+    { id: 'sparrow', name: '麻雀', kingdom: '动物界', phylum: '脊索动物门', class: '鸟纲', order: '雀形目', family: '麻雀科', genus: '麻雀属', species: '树麻雀', junior: true },
+    { id: 'chicken', name: '家鸡', kingdom: '动物界', phylum: '脊索动物门', class: '鸟纲', order: '鸡形目', family: '雉科', genus: '原鸡属', species: '家鸡', junior: false },
+    { id: 'duck', name: '绿头鸭', kingdom: '动物界', phylum: '脊索动物门', class: '鸟纲', order: '雁形目', family: '鸭科', genus: '鸭属', species: '绿头鸭', junior: false },
+    { id: 'falcon', name: '游隼', kingdom: '动物界', phylum: '脊索动物门', class: '鸟纲', order: '隼形目', family: '隼科', genus: '隼属', species: '游隼', junior: false },
+    // 哺乳纲
+    { id: 'rat', name: '褐家鼠', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '啮齿目', family: '鼠科', genus: '家鼠属', species: '褐家鼠', junior: false },
+    { id: 'human', name: '人类', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '灵长目', family: '人科', genus: '人属', species: '智人', junior: true },
+    { id: 'panda', name: '大熊猫', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '食肉目', family: '熊科', genus: '大熊猫属', species: '大熊猫', junior: true },
+    { id: 'cat', name: '家猫', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '食肉目', family: '猫科', genus: '猫属', species: '家猫', junior: false },
+    { id: 'wolf', name: '灰狼', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '食肉目', family: '犬科', genus: '犬属', species: '灰狼', junior: false },
+    { id: 'cow', name: '黄牛', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '偶蹄目', family: '牛科', genus: '牛属', species: '黄牛', junior: false },
+    { id: 'whale', name: '蓝鲸', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '偶蹄目(鲸目)', family: '须鲸科', genus: '须鲸属', species: '蓝鲸', junior: false },
+    { id: 'bat', name: '蝙蝠', kingdom: '动物界', phylum: '脊索动物门', class: '哺乳纲', order: '翼手目', family: '蝙蝠科', genus: '鼠耳蝠属', species: '蝙蝠', junior: false }
+  ];
+
+  // 渲染分类树
+  var treeData = null;
+  
+  function buildTree() {
+    var root = { name: '生物', children: [], expanded: true };
+    
+    // 构建层级: 界 -> 门 -> 纲 -> 目 -> 科 -> 属 -> 种
+    SPECIMENS.forEach(function(sp) {
+      // 如果是初中考点模式，跳过不属于初中考点的物种
+      if (rangeMode === 'junior' && !sp.junior) return;
+
+      var levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species'];
+      var names = [sp.kingdom, sp.phylum, sp.class, sp.order, sp.family, sp.genus, sp.species];
+      
+      var current = root;
+      for (var i = 0; i < levels.length; i++) {
+        var levelName = names[i];
+        if (!levelName) continue;
+
+        var found = null;
+        for (var j = 0; j < current.children.length; j++) {
+          if (current.children[j].name === levelName) {
+            found = current.children[j];
+            break;
+          }
+        }
+        
+        if (!found) {
+          found = { 
+            name: levelName, 
+            children: [], 
+            level: levels[i],
+            specimen: (i === levels.length - 1) ? sp : null
+          };
+          current.children.push(found);
+        }
+        current = found;
+      }
+    });
+    return root;
+  }
+
+  // ==========================================
+  // 2. 视图与渲染逻辑
+  // ==========================================
+  
+  // 表格渲染
+  function renderTable() {
+    var tbody = document.getElementById('taxTbody');
+    tbody.innerHTML = '';
+    
+    var filtered = SPECIMENS.filter(function(sp) {
+      return rangeMode === 'full' || (rangeMode === 'junior' && sp.junior);
+    });
+    
+    filtered.forEach(function(sp) {
+      var tr = document.createElement('tr');
+      if (activeSpecimenId === sp.id) tr.className = 'highlight';
+      tr.innerHTML = `
+        <td>${sp.kingdom}</td>
+        <td>${sp.phylum}</td>
+        <td>${sp.class}</td>
+        <td>${sp.order}</td>
+        <td>${sp.family}</td>
+        <td>${sp.genus}</td>
+        <td><b>${sp.species}</b><br><span style="font-size:11px;color:#64748b">(${sp.name})</span></td>
+      `;
+      tr.addEventListener('click', function() {
+        selectSpecimen(sp.id);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  // 思维导图渲染 (Canvas)
+  var treeNodes = [];
+  var treeLinks = [];
+  var NODE_W = 100;
+  var NODE_H = 36;
+  var X_GAP = 160;
+  var Y_GAP = 20;
+
+  function calcTreeLayout() {
+    treeData = buildTree();
+    treeNodes = [];
+    treeLinks = [];
+
+    var levelWidths = {};
+    var maxDepth = 0;
+
+    function measure(node, depth) {
+      node.depth = depth;
+      maxDepth = Math.max(maxDepth, depth);
+      if (node.children.length === 0) {
+        node.h = NODE_H + Y_GAP;
+      } else {
+        var sumH = 0;
+        node.children.forEach(function(child) {
+          sumH += measure(child, depth + 1);
+        });
+        node.h = sumH;
+      }
+      return node.h;
+    }
+
+    function position(node, x, yTop) {
+      node.x = x;
+      node.y = yTop + node.h / 2;
+      treeNodes.push(node);
+
+      var currentY = yTop;
+      node.children.forEach(function(child) {
+        position(child, x + X_GAP, currentY);
+        currentY += child.h;
+        
+        treeLinks.push({
+          source: node,
+          target: child
+        });
+      });
+    }
+
+    measure(treeData, 0);
+    
+    // 确保“门”这一级对齐等
+    position(treeData, 0, 0);
+    
+    // 调整整体位置使导图居中
+    var totalH = treeData.h;
+    var totalW = maxDepth * X_GAP;
+    
+    treeNodes.forEach(function(node) {
+      node.drawX = node.x - totalW / 2;
+      node.drawY = node.y - totalH / 2;
+    });
+
+    if (viewMode === 'mindmap' && treeData.children.length > 0) {
+      // 自动适应屏幕
+      var scaleX = (cssW * 0.85) / (totalW + NODE_W);
+      var scaleY = (cssH * 0.85) / totalH;
+      targetView.scale = Math.min(scaleX, scaleY, 1.2);
+      targetView.cx = 0;
+      targetView.cy = 0;
+    }
+  }
+
+  function resize() {
+    var rect = canvas.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    calcTreeLayout();
+  }
+
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(resize).observe(canvas); } catch (e) {}
+  }
+  window.addEventListener('resize', resize);
+
+  function w2s(x, y) {
+    return [cssW / 2 + (x - view.cx) * view.scale, cssH / 2 + (y - view.cy) * view.scale];
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+function drawMindmap() {
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    ctx.save();
+    
+    // 1. 绘制连线（加入层级粗细与颜色渐变）
+    treeLinks.forEach(function(link) {
+      var sp = w2s(link.source.drawX + link.source.drawW, link.source.drawY);
+      var tp = w2s(link.target.drawX, link.target.drawY);
+      
+      ctx.beginPath();
+      ctx.moveTo(sp[0], sp[1]);
+      var cpX = (sp[0] + tp[0]) / 2;
+      ctx.bezierCurveTo(cpX, sp[1], cpX, tp[1], tp[0], tp[1]);
+      
+      // 根据层级决定线条颜色和粗细
+      var level = link.source.level;
+      if (level === 'kingdom') {
+        ctx.strokeStyle = '#93c5fd'; // 蓝色，较粗
+        ctx.lineWidth = Math.max(2, 4 * view.scale);
+      } else if (level === 'phylum') {
+        ctx.strokeStyle = '#bef264'; // 绿色
+        ctx.lineWidth = Math.max(1.5, 3 * view.scale);
+      } else if (level === 'class') {
+        ctx.strokeStyle = '#fcd34d'; // 黄色
+        ctx.lineWidth = Math.max(1.5, 2.5 * view.scale);
+      } else {
+        ctx.strokeStyle = '#cbd5e1'; // 灰色，较细
+        ctx.lineWidth = Math.max(1, 1.5 * view.scale);
+      }
+      ctx.stroke();
+    });
+
+    // 2. 绘制节点
+    treeNodes.forEach(function(node) {
+      var pos = w2s(node.drawX, node.drawY);
+      var w = node.drawW * view.scale;
+      var h = NODE_H * view.scale;
+      
+      var isSelected = (activeSpecimenId && node.specimen && node.specimen.id === activeSpecimenId);
+      var isHover = (hoveredNode === node);
+      
+      ctx.save();
+      ctx.translate(pos[0], pos[1]);
+      
+      // 默认样式
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.5 * view.scale;
+      
+      // 层级配色系统
+      if (isSelected) {
+        ctx.fillStyle = '#10b981'; // 选中绿
+        ctx.strokeStyle = '#047857';
+        ctx.shadowColor = 'rgba(16, 185, 129, 0.4)';
+        ctx.shadowBlur = 15;
+      } else if (isHover) {
+        ctx.fillStyle = '#eff6ff'; 
+        ctx.strokeStyle = '#3b82f6';
+        ctx.shadowColor = 'rgba(59, 130, 246, 0.2)';
+        ctx.shadowBlur = 10;
+      } else if (node.level === 'kingdom') {
+        ctx.fillStyle = '#dbeafe'; ctx.strokeStyle = '#60a5fa'; // 界
+        ctx.shadowColor = 'rgba(0,0,0,0.05)'; ctx.shadowBlur = 5;
+      } else if (node.level === 'phylum') {
+        ctx.fillStyle = '#ecfccb'; ctx.strokeStyle = '#a3e635'; // 门
+        ctx.shadowColor = 'rgba(0,0,0,0.05)'; ctx.shadowBlur = 5;
+      } else if (node.level === 'class') {
+        ctx.fillStyle = '#fef3c7'; ctx.strokeStyle = '#fbbf24'; // 纲
+      } else if (node.level === 'order') {
+        ctx.fillStyle = '#fce7f3'; ctx.strokeStyle = '#f472b6'; // 目
+      } else if (node.level === 'species') {
+        ctx.fillStyle = '#f3e8ff'; ctx.strokeStyle = '#c084fc'; // 种
+      }
+      
+      roundRect(-w/2, -h/2, w, h, 8 * view.scale); // 圆角加大
+      ctx.fill();
+      ctx.stroke();
+
+      // 文字排版
+      var fontSize = 14;
+      if (node.level === 'kingdom' || node.level === 'phylum') fontSize = 16;
+      if (node.level === 'species') fontSize = 13;
+      
+      ctx.fillStyle = isSelected ? '#fff' : '#1e293b';
+      ctx.font = 'bold ' + (fontSize * view.scale) + 'px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      var text = node.name;
+      if (view.scale < 0.7 && text.length > 8) text = text.substring(0, 6) + '..';
+      ctx.fillText(text, 0, 0);
+      
+      ctx.restore();
+    });
+
+    ctx.restore();
+  }
+  // ==========================================
+  // 3. 交互逻辑
+  // ==========================================
+
+  // 左侧侧栏联动
+  function selectSpecimen(id) {
+    activeSpecimenId = id;
+    var sp = SPECIMENS.find(function(s) { return s.id === id; });
+    if (!sp) return;
+
+    // 更新表格数据
+    var trs = document.querySelectorAll('#pathTable tr');
+    trs[0].children[1].textContent = sp.kingdom || '—';
+    trs[1].children[1].textContent = sp.phylum || '—';
+    trs[2].children[1].textContent = sp.class || '—';
+    trs[3].children[1].textContent = sp.order || '—';
+    trs[4].children[1].textContent = sp.family || '—';
+    trs[5].children[1].textContent = sp.genus || '—';
+    trs[6].children[1].innerHTML = '<b>' + (sp.species || '—') + '</b> <span style="color:#64748b">(' + sp.name + ')</span>';
+
+    // 更新按钮高亮
+    var btns = document.querySelectorAll('.specimen-btn');
+    btns.forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-id') === id);
+    });
+
+    // 如果当前是表格模式，重绘表格
+    if (viewMode === 'table') {
+      renderTable();
+    }
+
+    document.getElementById('readout').innerHTML = '当前物种：<b>' + sp.name + '</b><br>属于 ' + (sp.type || '未知类群');
+  }
+
+  // 渲染物种按钮
+  function renderSpecimenBtns() {
+    var box = document.getElementById('specimenList');
+    box.innerHTML = '';
+    var filtered = SPECIMENS.filter(function(sp) {
+      return rangeMode === 'full' || (rangeMode === 'junior' && sp.junior);
+    });
+    filtered.forEach(function(sp) {
+      var btn = document.createElement('div');
+      btn.className = 'specimen-btn';
+      if (activeSpecimenId === sp.id) btn.classList.add('active');
+      btn.textContent = sp.name;
+      btn.setAttribute('data-id', sp.id);
+      btn.addEventListener('click', function() {
+        selectSpecimen(sp.id);
+      });
+      box.appendChild(btn);
+    });
+  }
+
+  // 切换模式
+  function updateView() {
+    document.getElementById('btnMindmap').classList.toggle('active', viewMode === 'mindmap');
+    document.getElementById('btnTable').classList.toggle('active', viewMode === 'table');
+
+    if (viewMode === 'mindmap') {
+      canvas.style.display = 'block';
+      document.getElementById('tableContainer').style.display = 'none';
+      calcTreeLayout(); // 重新计算居中
+    } else {
+      canvas.style.display = 'none';
+      document.getElementById('tableContainer').style.display = 'block';
+      renderTable();
+    }
+  }
+
+  document.getElementById('btnMindmap').addEventListener('click', function() {
+    viewMode = 'mindmap';
+    updateView();
+  });
+
+  document.getElementById('btnTable').addEventListener('click', function() {
+    viewMode = 'table';
+    updateView();
+  });
+
+  document.getElementById('rangeSelect').addEventListener('change', function(e) {
+    rangeMode = e.target.value;
+    // 清空选中状态，因为数据可能变了
+    activeSpecimenId = null;
+    document.getElementById('pathTable').innerHTML = `
+      <tr><td>界</td><td>—</td></tr><tr><td>门</td><td>—</td></tr>
+      <tr><td>纲</td><td>—</td></tr><tr><td>目</td><td>—</td></tr>
+      <tr><td>科</td><td>—</td></tr><tr><td>属</td><td>—</td></tr><tr><td>种</td><td>—</td></tr>
+    `;
+    renderSpecimenBtns();
+    calcTreeLayout();
+    updateView();
+    document.getElementById('readout').innerHTML = '点击画布中的节点或上方物种<br>查看其完整的分类学归属。';
+  });
+
+  // 鼠标 / 触摸交互 (仅对 Canvas)
+  var pointerState = { active: false, id: null, startX: 0, startY: 0, startCx: 0, startCy: 0, moved: false };
+  var pinchState = null;
+  var pointers = {};
+
+  canvas.addEventListener('pointerdown', function(e) {
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+    if (Object.keys(pointers).length === 1) {
+      var rect = canvas.getBoundingClientRect();
+      pointerState.active = true;
+      pointerState.id = e.pointerId;
+      pointerState.startX = e.clientX - rect.left;
+      pointerState.startY = e.clientY - rect.top;
+      pointerState.startCx = targetView.cx;
+      pointerState.startCy = targetView.cy;
+      pointerState.moved = false;
+    } else if (Object.keys(pointers).length === 2) {
+      pinchState = null;
+      updatePinch();
+      pointerState.active = false;
+    }
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    if (!pointers[e.pointerId]) return;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+
+    if (Object.keys(pointers).length >= 2) {
+      updatePinch();
+      return;
+    }
+
+    if (!pointerState.active || e.pointerId !== pointerState.id) return;
+
+    var rect = canvas.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+    var dx = px - pointerState.startX;
+    var dy = py - pointerState.startY;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      pointerState.moved = true;
+      targetView.cx = pointerState.startCx - dx / view.scale;
+      targetView.cy = pointerState.startCy - dy / view.scale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    } else {
+      // 悬浮检测
+      var mx = (px - cssW / 2) / view.scale + view.cx;
+      var my = (py - cssH / 2) / view.scale + view.cy;
+      
+      var hoverNode = null;
+      for (var i = 0; i < treeNodes.length; i++) {
+        var node = treeNodes[i];
+        if (mx >= node.drawX - NODE_W/2 && mx <= node.drawX + NODE_W/2 &&
+            my >= node.drawY - NODE_H/2 && my <= node.drawY + NODE_H/2) {
+          hoverNode = node;
+          break;
+        }
+      }
+      
+      if (hoveredNode !== hoverNode) {
+        hoveredNode = hoverNode;
+        canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+      }
+    }
+  });
+
+  function updatePinch() {
+    var ids = Object.keys(pointers);
+    if (ids.length !== 2) return;
+    var p1 = pointers[ids[0]], p2 = pointers[ids[1]];
+    var dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    if (dist < 1) return;
+
+    if (!pinchState) {
+      var rect = canvas.getBoundingClientRect();
+      var midX = (p1.x + p2.x) / 2 - rect.left;
+      var midY = (p1.y + p2.y) / 2 - rect.top;
+      pinchState = {
+        dist: dist,
+        scale: targetView.scale,
+        midX: midX,
+        midY: midY,
+        worldX: (midX - cssW / 2) / view.scale + view.cx,
+        worldY: (midY - cssH / 2) / view.scale + view.cy
+      };
+    } else {
+      var ratio = dist / pinchState.dist;
+      var newScale = pinchState.scale * ratio;
+      newScale = Math.max(0.2, Math.min(3.0, newScale));
+      
+      targetView.scale = newScale;
+      targetView.cx = pinchState.worldX - (pinchState.midX - cssW / 2) / newScale;
+      targetView.cy = pinchState.worldY - (pinchState.midY - cssH / 2) / newScale;
+
+      view.scale = newScale;
+      view.cx = targetView.cx;
+      view.cy = targetView.cy;
+    }
+  }
+
+  function endPointer(e) {
+    if (pointerState.active && e.pointerId === pointerState.id && !pointerState.moved) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      
+      var mx = (px - cssW / 2) / view.scale + view.cx;
+      var my = (py - cssH / 2) / view.scale + view.cy;
+      
+      // 检测点击
+      for (var i = 0; i < treeNodes.length; i++) {
+        var node = treeNodes[i];
+        if (mx >= node.drawX - NODE_W/2 && mx <= node.drawX + NODE_W/2 &&
+            my >= node.drawY - NODE_H/2 && my <= node.drawY + NODE_H/2) {
+          
+          if (node.specimen) {
+             // 是具体的物种节点
+             selectSpecimen(node.specimen.id);
+          } else {
+             // 是分类层级节点，寻找其下的任意一个物种进行路径展示
+             var foundSp = findSpecimenInNode(node);
+             if (foundSp) {
+               selectSpecimen(foundSp.id);
+             }
+          }
+          break;
+        }
+      }
+    }
+
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinchState = null;
+    if (Object.keys(pointers).length === 0) pointerState.active = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  function findSpecimenInNode(node) {
+    if (node.specimen) return node.specimen;
+    for (var i = 0; i < node.children.length; i++) {
+      var found = findSpecimenInNode(node.children[i]);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // =============== 主循环 ===============
+  var lastT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (cssW < 10) resize();
+    if (viewMode === 'table') return; // 表格模式不使用 canvas 渲染
+
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.08) dt = 0.08;
+
+    view.cx += (targetView.cx - view.cx) * 0.1;
+    view.cy += (targetView.cy - view.cy) * 0.1;
+    view.scale += (targetView.scale - view.scale) * 0.1;
+
+    if (!isFinite(view.cx)) view.cx = 0;
+    if (!isFinite(view.cy)) view.cy = 0;
+    if (!isFinite(view.scale) || view.scale <= 0) view.scale = 1;
+
+    drawMindmap();
+  }
+
+  // =============== 启动 ===============
+  resize();
+  renderSpecimenBtns();
+  updateView();
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
