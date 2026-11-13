@@ -146,6 +146,9 @@
   var LABS = window.LABS_DATA || [];
   var sidebar = document.getElementById('sidebar');
   var content = document.getElementById('content');
+  
+  // ★ 核心修复：定义 filter 变量，并提前赋值
+  var filter = 'all';
 
   function renderPage() {
     var sidebarHtml = '';
@@ -263,7 +266,6 @@
   }
 
   // 2. 侧边栏切换
-  var filter = 'all';
   sidebar.addEventListener('click', function(e) {
     var item = e.target.closest('.sidebar-item');
     if (!item) return;
