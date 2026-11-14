@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>初中全科电子课本 · ijhub</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  /* 页面容器限制最大宽度，保证在大屏上也不过分拉伸 */
+  .download-container {
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+
+  .header-title {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  
+  .header-title h2 {
+    color: #1e293b;
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+
+  .header-title p {
+    color: #64748b;
+    font-size: 14px;
+  }
+
+  /* 卡片基础样式 */
+  .dl-card {
+    display: block;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+    text-decoration: none;
+    color: #333;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .dl-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 20px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-color: #cbd5e1;
+  }
+
+  /* 品牌色边框点缀 */
+  .dl-card.quark { border-left: 6px solid #1e88e5; }
+  .dl-card.pep { border-left: 6px solid #e53935; }
+  .dl-card.smartedu { border-left: 6px solid #43a047; }
+
+  .dl-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .dl-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #0f172a;
+  }
+
+  /* 标签 */
+  .dl-tag {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: bold;
+  }
+  .dl-tag.official {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #a5d6a7;
+  }
+  .dl-tag.third-party {
+    background: #fff3e0;
+    color: #e65100;
+    border: 1px solid #ffcc80;
+  }
+
+  /* 描述文字 */
+  .dl-desc {
+    font-size: 14px;
+    color: #475569;
+    line-height: 1.6;
+    margin-bottom: 8px;
+  }
+
+  /* 右下角箭头提示 */
+  .dl-arrow {
+    position: absolute;
+    bottom: 20px;
+    right: 24px;
+    color: #cbd5e1;
+    font-size: 20px;
+    transition: color 0.3s ease, transform 0.3s ease;
+  }
+
+  .dl-card:hover .dl-arrow {
+    color: #3b82f6;
+    transform: translateX(4px);
+  }
+
+  @media (max-width: 600px) {
+    .download-container {
+      margin: 20px auto;
+    }
+    .dl-card {
+      padding: 20px;
+    }
+    .dl-title {
+      font-size: 16px;
+    }
+    .dl-arrow {
+      display: none;
+    }
+  }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>初中全科电子课本</h1>
+
+<div class="download-container">
+  
+  <div class="header-title">
+    <h2>正版与整合版电子教材</h2>
+    <p>推荐优先使用国家官方平台，免费且无版权争议</p>
+  </div>
+
+  <!-- 国家中小学智慧教育平台 -->
+  <a href="https://basic.smartedu.cn/elecEdu?defaultTag=e7bbb2de-0590-11ed-9c79-92fc3b3249d5%2F6a74973a-0772-11ed-ac74-092ab92074e6%2F44bee8bc-54e6-11ed-9c34-850ba61fa9f4%2Fe7bbd296-0590-11ed-9c79-92fc3b3249d5" target="_blank" class="dl-card smartedu">
+    <div class="dl-header">
+      <div class="dl-title">国家中小学智慧教育平台</div>
+      <div class="dl-tag official">官方权威</div>
+    </div>
+    <div class="dl-desc">教育部官方平台，提供各版本、各学科正版高清电子教材，支持在线浏览。</div>
+    <div class="dl-arrow">→</div>
+  </a>
+
+  <!-- 人民教育出版社 -->
+  <a href="https://jc.pep.com.cn" target="_blank" class="dl-card pep">
+    <div class="dl-header">
+      <div class="dl-title">人民教育出版社官网</div>
+      <div class="dl-tag official">官方正版</div>
+    </div>
+    <div class="dl-desc">人教社官方电子教材专区，提供人教版全套教材在线阅读。</div>
+    <div class="dl-arrow">→</div>
+  </a>
+
+  <!-- 夸克网盘整合版 -->
+  <a href="https://pan.quark.cn/s/9d0983050ac8#/" target="_blank" class="dl-card quark">
+    <div class="dl-header">
+      <div class="dl-title">夸克网盘（全科 PDF 合集）</div>
+      <div class="dl-tag third-party">网友整理</div>
+    </div>
+    <div class="dl-desc">包含初中全科多版本电子课本 PDF，方便离线下载查阅。仅供个人学习交流使用。</div>
+    <div class="dl-arrow">→</div>
+  </a>
+
+</div>
+
+<div class="site-footer">
+  <a href="https://github.com/zhangzhangfish1127/ijhub" target="_blank" style="color: #3498db; text-decoration: none; font-weight: bold;">github</a> • zhangzhangfish
+</div>
+</body>
+</html>
