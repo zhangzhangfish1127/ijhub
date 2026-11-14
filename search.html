@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>搜索 · ijhub 初中全科动态学堂</title>
+<link rel="icon" type="image/png" href="shared/new-icon.png">
+<link rel="stylesheet" href="shared/style.css">
+<style>
+  /* 顶部搜索栏容器 */
+  .search-header {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    z-index: 100;
+    padding: 20px 0;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px -4px rgba(0,0,0,0.05);
+  }
+
+  /* 搜索输入框容器 */
+  .search-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* 返回按钮 */
+  .back-btn-top {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 44px;
+    padding: 0 16px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    color: #333;
+    font-size: 14px;
+    text-decoration: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .back-btn-top:hover { background: #f8f9fa; }
+
+  /* 搜索框 */
+  .search-box {
+    flex-grow: 1;
+    height: 44px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid #ccc;
+    font-size: 15px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    outline: none;
+    transition: all 0.2s;
+    background: #fff;
+  }
+  .search-box:focus { border-color: #3498db; box-shadow: 0 4px 14px rgba(52,152,219,0.15); }
+
+  /* 搜索结果容器 */
+  .search-results {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 20px 40px;
+  }
+
+  /* 无结果提示 */
+  .no-results {
+    text-align: center;
+    padding: 60px 20px;
+    color: #94a3b8;
+    font-size: 16px;
+    display: none;
+  }
+
+  /* 分类标题 */
+  .result-category {
+    margin-bottom: 30px;
+    display: none; /* 默认隐藏，有结果时才显示 */
+  }
+  .result-category h2 {
+    font-size: 18px;
+    color: #1e293b;
+    margin-bottom: 16px;
+    border-left: 4px solid #3b82f6;
+    padding-left: 10px;
+  }
+
+  /* 卡片网格 */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+  }
+
+  /* 卡片 */
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: 1px solid #f0f0f0;
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.08);
+  }
+  .card h3 { font-size: 16px; color: #333; margin-bottom: 6px; }
+  .card p { font-size: 13px; color: #777; }
+
+  /* 高亮匹配的文字 */
+  .highlight {
+    color: #ef4444;
+    font-weight: bold;
+  }
+
+  /* 域名变更弹窗（保留，防止跳转时消失） */
+  .domain-popup {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #333; padding: 14px 20px;
+    border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    z-index: 2000; display: none; align-items: center; gap: 16px;
+    border-left: 5px solid #3498db; font-size: 14px;
+  }
+  .domain-popup a { color: #3498db; font-weight: bold; text-decoration: none; }
+
+  /* =========================================================
+     暗黑 / 色盲模式适配
+     ========================================================= */
+  #app[data-theme="achromatopsia"] { background: #000 !important; min-height: 100vh; }
+  #app[data-theme="achromatopsia"] h1, 
+  #app[data-theme="achromatopsia"] .result-category h2 { color: #fff !important; border-color: #fff !important; }
+  #app[data-theme="achromatopsia"] .card,
+  #app[data-theme="achromatopsia"] .back-btn-top,
+  #app[data-theme="achromatopsia"] .search-box { background: #111 !important; border: 2px solid #fff !important; color: #fff !important; }
+  #app[data-theme="achromatopsia"] .card h3 { color: #fff !important; }
+  #app[data-theme="achromatopsia"] .card p { color: #aaa !important; }
+  #app[data-theme="achromatopsia"] .search-header { background: #000 !important; box-shadow: none; border-bottom: 1px solid #333; }
+  #app[data-theme="achromatopsia"] .site-footer { border-top-color: #fff !important; color: #aaa !important; }
+
+  #app[data-theme="protanopia"], #app[data-theme="deuteranopia"] { background: #eef4f8 !important; min-height: 100vh; }
+  #app[data-theme="protanopia"] .result-category h2,
+  #app[data-theme="deuteranopia"] .result-category h2 { color: #2980b9 !important; border-left-color: #2980b9 !important; }
+
+  #app[data-theme="tritanopia"] { background: #fff5f0 !important; min-height: 100vh; }
+  #app[data-theme="tritanopia"] .result-category h2 { color: #d35400 !important; border-left-color: #d35400 !important; }
+</style>
+</head>
+<body>
+<!-- 隔离罩 -->
+<div id="app">
+  <div class="search-header">
+    <div class="search-input-wrapper">
+      <a href="index.html" class="back-btn-top">← 返回</a>
+      <input type="text" id="searchInput" class="search-box" placeholder="搜索全科实验或资源..." autofocus>
+    </div>
+  </div>
+
+  <div class="search-results" id="searchResults">
+    <!-- 动态生成分类结果 -->
+  </div>
+  
+  <div class="no-results" id="noResults">
+    无结果
+  </div>
+
+  <div class="site-footer" style="margin-top: 0;">
+    <a href="https://github.com/zhangzhangfish1127/ijhub" target="_blank" style="color: #3498db; text-decoration: none; font-weight: bold;">github</a> • zhangzhangfish
+  </div>
+</div>
+
+<script src="shared/common.js"></script>
+<script src="shared/labs.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  function updateAppTheme() {
+    var theme = localStorage.getItem('colorTheme') || 'normal';
+    var app = document.getElementById('app');
+    if (app) app.setAttribute('data-theme', theme);
+  }
+  updateAppTheme();
+  window.addEventListener('themechange', updateAppTheme);
+
+  var LABS = window.LABS_DATA || [];
+  var searchInput = document.getElementById('searchInput');
+  var searchResults = document.getElementById('searchResults');
+  var noResults = document.getElementById('noResults');
+
+  // 渲染所有的分类骨架
+  function initCategories() {
+    var html = '';
+    LABS.forEach(function(cat) {
+      html += '<div class="result-category" id="res-cat-' + cat.id + '">';
+      html += '  <h2>' + cat.name + '</h2>';
+      html += '  <div class="cards" id="res-cards-' + cat.id + '"></div>';
+      html += '</div>';
+    });
+    searchResults.innerHTML = html;
+  }
+
+  initCategories();
+
+  // 防抖处理
+  var debounceTimer;
+  
+  // 监听输入事件
+  searchInput.addEventListener('input', function(e) {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function() {
+      performSearch(e.target.value);
+    }, 200);
+  });
+
+  function performSearch(keyword) {
+    var val = keyword.toLowerCase().trim();
+    var totalFound = 0;
+    
+    // 如果搜索词为空，显示“无结果”或隐藏所有结果
+    if (!val) {
+      LABS.forEach(function(cat) {
+        document.getElementById('res-cat-' + cat.id).style.display = 'none';
+      });
+      noResults.style.display = 'block';
+      return;
+    }
+
+    LABS.forEach(function(cat) {
+      var catFound = 0;
+      var cardsContainer = document.getElementById('res-cards-' + cat.id);
+      var catContainer = document.getElementById('res-cat-' + cat.id);
+      var cardsHtml = '';
+
+      cat.items.forEach(function(item) {
+        var title = item.title || '';
+        var desc = item.desc || '';
+        
+        var matchTitle = title.toLowerCase().includes(val);
+        var matchDesc = desc.toLowerCase().includes(val);
+
+        if (matchTitle || matchDesc) {
+          catFound++;
+          totalFound++;
+
+          // 生成高亮替换文本（使用正则匹配关键词，忽略大小写）
+          var regex = new RegExp('(' + val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+          var hlTitle = title.replace(regex, '<span class="highlight">$1</span>');
+          var hlDesc = desc.replace(regex, '<span class="highlight">$1</span>');
+
+          var isWip = !item.done;
+          var cardClass = isWip ? 'card wip' : 'card';
+          var href = isWip ? '#' : item.url;
+
+          cardsHtml += '<a class="' + cardClass + '" href="' + href + '">';
+          cardsHtml += '  <h3>' + hlTitle + '</h3>';
+          cardsHtml += '  <p>' + hlDesc + '</p>';
+          cardsHtml += '</a>';
+        }
+      });
+
+      if (catFound > 0) {
+        // 如果该分类有匹配项，显示分类并填入卡片
+        catContainer.style.display = 'block';
+        cardsContainer.innerHTML = cardsHtml;
+      } else {
+        // 否则隐藏该分类
+        catContainer.style.display = 'none';
+        cardsContainer.innerHTML = '';
+      }
+    });
+
+    // 总结果数为0，显示“无结果”
+    if (totalFound === 0) {
+      noResults.style.display = 'block';
+    } else {
+      noResults.style.display = 'none';
+    }
+  }
+
+  // 拦截“制作中”卡片的点击
+  searchResults.addEventListener('click', function(e) {
+    var wipCard = e.target.closest('.card.wip');
+    if (wipCard) {
+      e.preventDefault();
+      alert("该内容正在紧张制作中，敬请期待！");
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
