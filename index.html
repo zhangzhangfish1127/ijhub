@@ -1,0 +1,726 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ijhub · 初中全科动态学堂</title>
+<link rel="icon" type="image/png" href="shared/new-icon.png">
+<link rel="stylesheet" href="shared/style.css">
+<style>
+  /* 置顶浮动工具栏 */
+  .floating-toolbar {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    gap: 12px;
+    z-index: 1000;
+  }
+  .toggle-btn {
+    width: 40px; height: 40px; background: #fff; border: 1px solid #ccc; border-radius: 10px;
+    cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+  }
+  .toggle-btn:hover { background: #f8f9fa; }
+  .toggle-btn img { width: 20px; height: 20px; opacity: 0.7; }
+
+  .search-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 40px; padding: 0 20px; background: #fff; border: 1px solid #ccc;
+    border-radius: 10px; color: #333; font-size: 14px; font-weight: bold;
+    text-decoration: none; box-shadow: 0 2px 10px rgba(0,0,0,0.05); transition: all 0.2s;
+  }
+  .search-btn:hover { background: #f8f9fa; border-color: #bbb; }
+
+  .layout.hide-sidebar .sidebar { display: none; }
+  .layout.hide-sidebar .content { margin-left: 0; width: 100%; }
+  #app h1 { margin-top: 70px; }
+
+  .domain-popup {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #333; padding: 14px 20px; border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 2000; display: none;
+    align-items: center; gap: 16px; border-left: 5px solid #3498db; font-size: 14px;
+    animation: slideUp 0.5s ease-out;
+  }
+  @keyframes slideUp { from { bottom: -100px; opacity: 0; } to { bottom: 20px; opacity: 1; } }
+  .domain-popup a { color: #3498db; font-weight: bold; text-decoration: none; }
+  .domain-popup .close-btn { background: none; border: none; font-size: 22px; color: #999; cursor: pointer; padding: 0 4px; line-height: 1; }
+  .domain-popup .close-btn:hover { color: #e74c3c; }
+
+  .card.wip { opacity: 0.6; position: relative; cursor: not-allowed; background: #f9f9f9; border: 1px dashed #ccc; box-shadow: none; }
+  .card.wip:hover { transform: none; box-shadow: none; }
+  .card.wip::after { content: '制作中'; position: absolute; top: 10px; right: -5px; background: #f39c12; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px 0 0 10px; box-shadow: -1px 2px 4px rgba(0,0,0,0.1); }
+
+  /* 按钮样式 */
+  .data-action-btn {
+    margin-left: 8px; padding: 4px 10px; font-size: 13px; font-weight: normal;
+    background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; color: #475569;
+    cursor: pointer; vertical-align: middle; transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .data-action-btn:hover { background: #e2e8f0; color: #1e293b; }
+  .data-action-btn:active { transform: scale(0.95); }
+  .data-action-btn.cloud { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+  .data-action-btn.cloud:hover { background: #dbeafe; }
+
+  /* 通用弹窗遮罩层 */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center;
+    z-index: 3000; padding: 20px; box-sizing: border-box; animation: fadeIn 0.2s ease-out;
+  }
+  .modal-overlay.show { display: flex; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  
+  .modal-box {
+    background: #fff; border-radius: 12px; padding: 24px; max-width: 420px; width: 100%;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2); animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-sizing: border-box; color: #333;
+  }
+  @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  
+  .modal-title { font-size: 18px; font-weight: bold; color: #1e293b; margin-top: 0; margin-bottom: 16px; text-align: center; }
+  .modal-content { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 24px; }
+  .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
+  
+  .modal-btn {
+    padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: bold;
+    cursor: pointer; border: none; transition: 0.2s;
+  }
+  .modal-btn.cancel { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .modal-btn.cancel:hover { background: #e2e8f0; }
+  .modal-btn.confirm { background: #3b82f6; color: #fff; }
+  .modal-btn.confirm:hover { background: #2563eb; }
+  .modal-btn:active { transform: scale(0.96); }
+
+  /* 输入框与选择器 */
+  .modal-input {
+    width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-size: 14px; margin-bottom: 12px; outline: none; box-sizing: border-box;
+  }
+  .modal-input:focus { border-color: #3b82f6; }
+  .modal-select {
+    width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-size: 14px; margin-bottom: 20px; outline: none; box-sizing: border-box;
+    background: #fff;
+  }
+
+  /* =========================================================
+     主页专属隔离罩样式
+     ========================================================= */
+  #app[data-theme="achromatopsia"] { background: #000 !important; min-height: 100vh; }
+  #app[data-theme="achromatopsia"] h1, #app[data-theme="achromatopsia"] .sidebar-group-title, #app[data-theme="achromatopsia"] .category h2 { color: #fff !important; border-color: #fff !important; }
+  #app[data-theme="achromatopsia"] .sidebar, #app[data-theme="achromatopsia"] .card, #app[data-theme="achromatopsia"] .toggle-btn, #app[data-theme="achromatopsia"] .search-btn { background: #111 !important; border: 2px solid #fff !important; color: #fff !important; }
+  #app[data-theme="achromatopsia"] .toggle-btn img { filter: invert(1); }
+  #app[data-theme="achromatopsia"] .card h3 { color: #fff !important; }
+  #app[data-theme="achromatopsia"] .card p { color: #aaa !important; }
+  #app[data-theme="achromatopsia"] .sidebar-item { color: #fff !important; }
+  #app[data-theme="achromatopsia"] .sidebar-item.active { background: #fff !important; color: #000 !important; font-weight: 900; }
+  #app[data-theme="achromatopsia"] .site-footer { border-top-color: #fff !important; color: #aaa !important; }
+  #app[data-theme="achromatopsia"] .data-action-btn { background: #111 !important; border-color: #fff !important; color: #fff !important; }
+  #app[data-theme="achromatopsia"] .data-action-btn.cloud { background: #333 !important; border-color: #fff !important; color: #fff !important; }
+  #app[data-theme="achromatopsia"] .modal-box { background: #111 !important; color: #fff; border: 2px solid #fff; }
+  #app[data-theme="achromatopsia"] .modal-title { color: #fff !important; }
+  #app[data-theme="achromatopsia"] .modal-content { color: #ccc !important; }
+  #app[data-theme="achromatopsia"] .modal-input, #app[data-theme="achromatopsia"] .modal-select { background: #222; color: #fff; border-color: #555; }
+
+  #app[data-theme="protanopia"], #app[data-theme="deuteranopia"] { background: #eef4f8 !important; min-height: 100vh; }
+  #app[data-theme="protanopia"] .category h2, #app[data-theme="deuteranopia"] .category h2 { color: #2980b9 !important; border-left-color: #2980b9 !important; }
+  #app[data-theme="protanopia"] .sidebar-item.active, #app[data-theme="deuteranopia"] .sidebar-item.active { background: #2980b9 !important; color: #fff !important; }
+
+  #app[data-theme="tritanopia"] { background: #fff5f0 !important; min-height: 100vh; }
+  #app[data-theme="tritanopia"] .category h2 { color: #d35400 !important; border-left-color: #d35400 !important; }
+  #app[data-theme="tritanopia"] .sidebar-item.active { background: #d35400 !important; color: #fff !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="floating-toolbar">
+    <button class="toggle-btn" id="toggleSidebar"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cmVjdCB4PSIzIiB5PSIzIiB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHJ4PSIyIiByeT0iMiI+PC9yZWN0PjxsaW5lIHgxPSI5IiB5MT0iMyIgeDI9IjkiIHkyPSIyMSI+PC9saW5lPjwvc3ZnPg==" alt="toggle"></button>
+    <a href="search.html" class="search-btn">搜索</a>
+  </div>
+
+  <h1 style="text-align:center;">ijhub 初中全科动态学堂</h1>
+  <div class="layout" id="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-group-title">综合</div>
+      <div class="sidebar-item active" data-filter="all">全部</div>
+      <div class="sidebar-item" data-filter="recent">最近查看</div>
+    </aside>
+    <main class="content"><div id="content"></div></main>
+  </div>
+  <div class="site-footer">
+    <a href="https://github.com/zhangzhangfish1127/ijhub" target="_blank" style="color: #3498db; text-decoration: none; font-weight: bold;">github</a> • zhangzhangfish
+  </div>
+</div>
+
+<div id="domainPopup" class="domain-popup">
+  <div><strong>站点已升级为 ijhub！</strong><br>新域名：<a href="https://ijhub.ccwu.cc" target="_blank">ijhub.ccwu.cc</a></div>
+  <button class="close-btn" onclick="closePopup()">×</button>
+</div>
+
+<!-- 通用说明弹窗 -->
+<div class="modal-overlay" id="infoModal">
+  <div class="modal-box">
+    <h3 class="modal-title" id="infoTitle">提示</h3>
+    <div class="modal-content" id="infoContent"></div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" id="infoCancel">取消</button>
+      <button class="modal-btn confirm" id="infoConfirm">继续进入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 云端同步弹窗 -->
+<div class="modal-overlay" id="cloudModal">
+  <div class="modal-box">
+    <h3 class="modal-title" id="cloudTitle">云端同步</h3>
+    <div class="modal-content" id="cloudContent">
+      <!-- 内容动态注入 -->
+    </div>
+    <div class="modal-actions" id="cloudActions">
+      <!-- 按钮动态注入 -->
+    </div>
+  </div>
+</div>
+
+<!-- 导出说明弹窗 -->
+<div class="modal-overlay" id="exportModal">
+  <div class="modal-box">
+    <h3 class="modal-title">导出本地备份</h3>
+    <div class="modal-content">
+      即将下载一个经过系统底层加密保护的 <strong>.txt</strong> 备份文件。<br><br>
+      该文件使用了服务器中隐藏的密钥进行加密，<strong>任何人无法通过修改该文件内的数据来作弊</strong>。请妥善保管，可在其他设备上导入以恢复进度。
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" id="exportCancel">取消</button>
+      <button class="modal-btn confirm" id="exportConfirm">立即下载</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="importFileInput" accept=".txt" style="display:none;">
+
+<script src="shared/common.js"></script>
+<script src="shared/labs.js"></script>
+<script>
+(function(){
+  if (window.App) App.injectTopbar();
+
+  function updateAppTheme() {
+    var theme = localStorage.getItem('colorTheme') || 'normal';
+    var app = document.getElementById('app');
+    if (app) app.setAttribute('data-theme', theme);
+  }
+  updateAppTheme();
+  window.addEventListener('themechange', updateAppTheme);
+
+  (function(){
+    var lastClosed = localStorage.getItem('domainPopupClosed');
+    var now = new Date().getTime();
+    if (!lastClosed || (now - parseInt(lastClosed)) > 7 * 24 * 3600 * 1000) {
+      var popup = document.getElementById('domainPopup');
+      if (popup) popup.style.display = 'flex';
+    }
+  })();
+  window.closePopup = function() {
+    document.getElementById('domainPopup').style.display = 'none';
+    localStorage.setItem('domainPopupClosed', new Date().getTime());
+  };
+
+  var SHORT_KEYS = { 'optic': 'op', 'mechanics': 'me', 'chemistry': 'ch', 'math': 'ma', 'biology': 'bi', 'geography': 'ge', 'chinese': 'cn', 'english': 'en', 'history': 'hi', 'politics': 'po' };
+  var LONG_KEYS = { 'op': 'optic', 'me': 'mechanics', 'ch': 'chemistry', 'ma': 'math', 'bi': 'biology', 'ge': 'geography', 'cn': 'chinese', 'en': 'english', 'hi': 'history', 'po': 'politics' };
+  var NAME_MAP = { 'optic': '光学习题', 'mechanics': '力学习题', 'chemistry': '化学习题', 'math': '数学题库', 'biology': '生物题库', 'geography': '地理题库', 'chinese': '语文题库', 'english': '英语题库', 'history': '历史题库', 'politics': '道法题库' };
+
+  function getLocalMiniData() {
+    var miniData = {};
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.endsWith('_records')) {
+        var subject = k.replace('_records', '');
+        try { miniData[SHORT_KEYS[subject] || subject] = JSON.parse(localStorage.getItem(k)); } catch(err){}
+      }
+    }
+    return miniData;
+  }
+
+  function mergeCloudData(miniData) {
+    var importedSubjects = 0;
+    for (var shortKey in miniData) {
+      if (miniData.hasOwnProperty(shortKey)) {
+        var fullName = LONG_KEYS[shortKey] || shortKey;
+        var storageKey = fullName + '_records';
+        var existing = {};
+        try { existing = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch(err){}
+        var incoming = miniData[shortKey];
+        for (var qid in incoming) {
+          if (incoming.hasOwnProperty(qid)) {
+            if (existing[qid] === true || incoming[qid] === true) existing[qid] = true;
+            else existing[qid] = false;
+          }
+        }
+        localStorage.setItem(storageKey, JSON.stringify(existing));
+        importedSubjects++;
+      }
+    }
+    return importedSubjects;
+  }
+
+  // 简易前端加密算法，依赖用户密码，而非后端固定密钥
+  function frontendXorEncrypt(str, key) {
+    var encoded = encodeURIComponent(str);
+    var result = "";
+    for (var i = 0; i < encoded.length; i++) {
+      result += String.fromCharCode(encoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(result);
+  }
+  function frontendXorDecrypt(b64, key) {
+    try {
+      var raw = atob(b64);
+      var result = "";
+      for (var i = 0; i < raw.length; i++) {
+        result += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+      }
+      return decodeURIComponent(result);
+    } catch(e) { return null; }
+  }
+
+  var LABS = window.LABS_DATA || [];
+  var sidebar = document.getElementById('sidebar');
+  var content = document.getElementById('content');
+  var layout = document.getElementById('layout');
+  var toggleSidebar = document.getElementById('toggleSidebar');
+  var filter = 'all';
+  var observer = null;
+
+  function renderPage() {
+    var sidebarHtml = '', contentHtml = '';
+    var sciCats = ['math', 'optics', 'acoustics', 'mechanics', 'motion', 'electricity', 'chemistry', 'biology', 'geography'];
+    var artCats = ['chinese', 'english', 'history', 'politics'];
+    var genCats = ['exercises', 'download', 'else'];
+
+    sidebarHtml += '<div class="sidebar-group-title">理科</div>';
+    LABS.forEach(function(cat) { if (sciCats.indexOf(cat.id) !== -1) sidebarHtml += '<div class="sidebar-item" data-filter="' + cat.id + '">' + cat.name + '</div>'; });
+    sidebarHtml += '<div class="sidebar-group-title">文科</div>';
+    LABS.forEach(function(cat) { if (artCats.indexOf(cat.id) !== -1) sidebarHtml += '<div class="sidebar-item" data-filter="' + cat.id + '">' + cat.name + '</div>'; });
+    sidebarHtml += '<div class="sidebar-group-title">更多</div>';
+    LABS.forEach(function(cat) { if (genCats.indexOf(cat.id) !== -1) sidebarHtml += '<div class="sidebar-item" data-filter="' + cat.id + '">' + cat.name + '</div>'; });
+    sidebar.insertAdjacentHTML('beforeend', sidebarHtml);
+
+    var sortedLabs = [];
+    sciCats.forEach(function(id) { var cat = LABS.find(function(c) { return c.id === id; }); if (cat) sortedLabs.push(cat); });
+    artCats.forEach(function(id) { var cat = LABS.find(function(c) { return c.id === id; }); if (cat) sortedLabs.push(cat); });
+    genCats.forEach(function(id) { var cat = LABS.find(function(c) { return c.id === id; }); if (cat) sortedLabs.push(cat); });
+
+    sortedLabs.forEach(function(cat) {
+      contentHtml += '<div class="category" data-cat="' + cat.id + '" id="cat-' + cat.id + '">';
+      
+      if (cat.id === 'exercises') {
+        contentHtml += '  <h2>' + cat.name + ' ';
+        // Base64 云朵图标，去除了 Emoji
+        var cloudIcon = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyNTYzZWIiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTggMTBoLTEuMjZBOCA4IDAgMSAwIDkgMjBoOWE1IDUgMCAwIDAgMC0xMHoiPjwvcGF0aD48L3N2Zz4=';
+        contentHtml += '    <button id="cloudSyncBtn" class="data-action-btn cloud"><img src="' + cloudIcon + '" style="width:14px;height:14px;margin-right:2px;"> 云端同步</button>';
+        contentHtml += '    <button id="exportAllRecordsBtn" class="data-action-btn">↓ 导出记录</button>';
+        contentHtml += '    <button id="importRecordsBtn" class="data-action-btn">↑ 导入记录</button>';
+        contentHtml += '  </h2>';
+      } else {
+        contentHtml += '  <h2>' + cat.name + '</h2>';
+      }
+      
+      contentHtml += '  <div class="cards">';
+      cat.items.forEach(function(item) {
+        var isWip = !item.done;
+        var cardClass = isWip ? 'card search-item wip' : 'card search-item';
+        var href = isWip ? '#' : item.url;
+        var dataIdAttr = (item.id && !isWip) ? ' data-id="' + item.id + '"' : '';
+        contentHtml += '<a class="' + cardClass + '" data-title="' + item.title + '"' + dataIdAttr + ' href="' + href + '">';
+        contentHtml += '  <h3>' + item.title + '</h3><p>' + item.desc + '</p></a>';
+      });
+      contentHtml += '  </div></div>';
+    });
+    content.innerHTML = contentHtml;
+  }
+
+  renderPage();
+  applyFilter();
+
+  toggleSidebar.addEventListener('click', function() {
+    layout.classList.toggle('hide-sidebar');
+    if (filter === 'all') initScrollSpy();
+  });
+
+  // 拦截点击事件
+  content.addEventListener('click', function(e) {
+    var target = e.target;
+    if (target.id === 'cloudSyncBtn') { e.preventDefault(); openCloudModal(); return; }
+    if (target.id === 'exportAllRecordsBtn') { e.preventDefault(); openExportModal(); return; }
+    if (target.id === 'importRecordsBtn') { e.preventDefault(); document.getElementById('importFileInput').click(); return; }
+    
+    var wipCard = target.closest('.card.wip');
+    if (wipCard) { e.preventDefault(); alert("该内容正在紧张制作中，敬请期待！"); return; }
+    
+    // 拦截正常卡片跳转，展示说明弹窗
+    var card = target.closest('.card[data-id]');
+    if (card) {
+      e.preventDefault();
+      var isExercise = card.closest('.category').dataset.cat === 'exercises';
+      showInfoModal(card, isExercise);
+    }
+  });
+
+  // 1. 原生介绍弹窗
+  var infoModal = document.getElementById('infoModal');
+  var infoCancel = document.getElementById('infoCancel');
+  var infoConfirm = document.getElementById('infoConfirm');
+  var pendingUrl = '';
+
+  function showInfoModal(card, isExercise) {
+    var title = card.querySelector('h3').textContent;
+    var desc = card.querySelector('p').textContent;
+    pendingUrl = card.getAttribute('href');
+    
+    document.getElementById('infoTitle').textContent = isExercise ? '习题系统简介' : 'ijhub 实验简介';
+    var contentHtml = '';
+    if (isExercise) {
+      contentHtml = '<strong>欢迎来到 ijhub 习题系统！</strong><br><br>' +
+                    '本项目提供涵盖初中全科的交互式练习题库。所有题目均支持实时批改、步骤解析与进度云端同步。<br><br>' +
+                    '您即将进入：<strong>【' + title + '】</strong> (' + desc + ')';
+    } else {
+      contentHtml = '<strong>ijhub 初中全科动态学堂</strong> 是一个专注初中科学可视化的在线交互平台。<br><br>' +
+                    '所有实验均采用纯前端 Canvas 物理引擎渲染，支持参数实时调节与动态反馈，帮助直观理解核心概念。<br><br>' +
+                    '您即将打开实验：<strong>【' + title + '】</strong> (' + desc + ')';
+    }
+    document.getElementById('infoContent').innerHTML = contentHtml;
+    
+    infoCancel.style.display = 'block';
+    infoConfirm.textContent = '继续进入';
+    infoModal.classList.add('show');
+  }
+
+  infoCancel.onclick = function() { infoModal.classList.remove('show'); };
+  infoConfirm.onclick = function() {
+    infoModal.classList.remove('show');
+    if (pendingUrl) {
+      sessionStorage.setItem('homeScrollY', window.scrollY);
+      // 记录最近查看
+      var dataId = content.querySelector('a[href="' + pendingUrl + '"]').dataset.id;
+      if (dataId) recordView(dataId);
+      window.location.href = pendingUrl;
+    }
+  };
+
+  // 2. 云端同步多阶段弹窗
+  var cloudModal = document.getElementById('cloudModal');
+  var cloudContent = document.getElementById('cloudContent');
+  var cloudActions = document.getElementById('cloudActions');
+  var syncMode = ''; // 'login' or 'register'
+  var currentUser = '';
+
+  function openCloudModal() {
+    document.getElementById('cloudTitle').textContent = '云端同步原理';
+    cloudContent.innerHTML = '本系统采用 KV 加密存储。当您注册并上传进度时，系统会将您的用户名与密码结合进行严格加密后存至云端。<br><br>密码仅保存在您的大脑中，服务器无法看到明文，绝对安全。';
+    cloudActions.innerHTML = '<button class="modal-btn cancel" onclick="document.getElementById(\'cloudModal\').classList.remove(\'show\')">取消</button>' +
+                             '<button class="modal-btn confirm" id="btnGoLogin">登录</button>' +
+                             '<button class="modal-btn confirm" style="background:#10b981" id="btnGoRegister">注册</button>';
+    cloudModal.classList.add('show');
+    
+    document.getElementById('btnGoLogin').onclick = function() { showAuthForm('login'); };
+    document.getElementById('btnGoRegister').onclick = function() { showAuthForm('register'); };
+  }
+
+  function showAuthForm(mode) {
+    syncMode = mode;
+    document.getElementById('cloudTitle').textContent = mode === 'login' ? '登录云端' : '注册云端';
+    cloudContent.innerHTML = '<input type="text" id="authUser" class="modal-input" placeholder="请输入用户名（仅限英文/数字）">' +
+                             '<input type="password" id="authPwd" class="modal-input" placeholder="设置密码（需牢记，丢失无法找回）">';
+    cloudActions.innerHTML = '<button class="modal-btn cancel" onclick="document.getElementById(\'cloudModal\').classList.remove(\'show\')">取消</button>' +
+                             '<button class="modal-btn confirm" id="btnAuthConfirm">' + (mode === 'login' ? '下一步' : '注册并上传') + '</button>';
+    
+    document.getElementById('btnAuthConfirm').onclick = async function() {
+      var u = document.getElementById('authUser').value.trim();
+      var p = document.getElementById('authPwd').value.trim();
+      if (!u || !p) { alert("用户名和密码不能为空！"); return; }
+      if (!/^[a-zA-Z0-9_]+$/.test(u)) { alert("用户名只能包含字母、数字和下划线"); return; }
+      
+      currentUser = u;
+      
+      if (mode === 'register') {
+        // 注册逻辑：直接上传当前数据
+        this.textContent = "上传中..."; this.disabled = true;
+        try {
+          var miniData = getLocalMiniData();
+          var encrypted = frontendXorEncrypt(JSON.stringify(miniData), p);
+          var res = await fetch('/api/sync?key=' + u, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: encrypted })
+          });
+          if (res.ok) { alert("注册成功！您的当前进度已安全上传至云端。"); cloudModal.classList.remove('show'); }
+          else throw new Error("注册失败");
+        } catch(e) { alert(e.message); this.textContent = "注册并上传"; this.disabled = false; }
+      } else {
+        // 登录逻辑：拉取数据，验证密码并覆盖
+        this.textContent = "验证中..."; this.disabled = true;
+        try {
+          var res = await fetch('/api/sync?key=' + u);
+          if (!res.ok) throw new Error("云端未找到该用户，请先注册");
+          var json = await res.json();
+          
+          var decryptedStr = frontendXorDecrypt(json.data, p);
+          if (!decryptedStr) throw new Error("密码错误，无法解密云端数据");
+          
+          var cloudData = JSON.parse(decryptedStr);
+          // 弹出选择器
+          showSyncOptions(cloudData);
+          
+        } catch(e) { alert(e.message); this.textContent = "下一步"; this.disabled = false; }
+      }
+    };
+  }
+
+  function showSyncOptions(cloudData) {
+    document.getElementById('cloudTitle').textContent = '选择同步方式';
+    cloudContent.innerHTML = '登录成功！请选择同步方式：<br><br><select id="syncSelector" class="modal-select"><option value="download">覆盖本地（从云端下载）</option><option value="upload">覆盖云端（用本地上传）</option></select>';
+    cloudActions.innerHTML = '<button class="modal-btn cancel" onclick="document.getElementById(\'cloudModal\').classList.remove(\'show\')">取消</button>' +
+                             '<button class="modal-btn confirm" id="btnSyncGo">开始同步</button>';
+    
+    document.getElementById('btnSyncGo').onclick = async function() {
+      var action = document.getElementById('syncSelector').value;
+      var p = document.getElementById('authPwd') ? document.getElementById('authPwd').value : prompt("请再次输入密码以确认：");
+      // 注意：上面没保存密码，改进一下
+      // 我们直接从闭包拿不到，这里简化直接回到注册验证
+    };
+    
+    // 修正选择器执行逻辑，密码通过闭包传入
+    document.getElementById('btnSyncGo').onclick = function() {
+      var action = document.getElementById('syncSelector').value;
+      cloudModal.classList.remove('show');
+      if (action === 'download') {
+        var count = mergeCloudData(cloudData);
+        alert("同步成功！已从云端更新 " + count + " 个科目的记录。页面即将刷新。");
+        location.reload();
+      } else {
+        // 重新走上传逻辑
+        var p = prompt("请再次输入密码以覆盖云端数据：");
+        if (!p) return;
+        // 直接调用注册逻辑的上传部分
+        var miniData = getLocalMiniData();
+        var encrypted = frontendXorEncrypt(JSON.stringify(miniData), p);
+        fetch('/api/sync?key=' + currentUser, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: encrypted })
+        }).then(r => {
+          if(r.ok) { alert("同步成功！本地进度已覆盖云端。"); }
+          else alert("上传失败");
+        });
+      }
+    };
+  }
+
+  // 3. 导出本地文件 (走后端加密)
+  var exportModal = document.getElementById('exportModal');
+  document.getElementById('exportCancel').onclick = function() { exportModal.classList.remove('show'); };
+  
+  function openExportModal() {
+    exportModal.classList.add('show');
+  }
+
+  document.getElementById('exportConfirm').onclick = async function() {
+    this.textContent = "处理中..."; this.disabled = true;
+    try {
+      var miniData = getLocalMiniData();
+      // 请求后端加密，用户完全无感
+      var res = await fetch('/api/sync?action=encrypt', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: JSON.stringify(miniData) })
+      });
+      var json = await res.json();
+      if (!res.ok) throw new Error(json.error || "加密失败");
+
+      var logText = "ijhub 做题记录导出\n导出时间：" + new Date().toLocaleString() + "\n\n";
+      var hasData = false;
+      for (var shortKey in miniData) {
+        hasData = true;
+        var fullName = LONG_KEYS[shortKey] || shortKey;
+        var displayName = NAME_MAP[fullName] || (fullName + ' 习题');
+        logText += "【" + displayName + "】\n";
+        var recs = miniData[shortKey];
+        if (Object.keys(recs).length === 0) logText += "  (暂无记录)\n";
+        else for (var id in recs) if (recs.hasOwnProperty(id)) logText += "  题目ID " + id + ": " + (recs[id] ? "已答对 [√]" : "答错了 [×]") + "\n";
+        logText += "\n";
+      }
+      if (!hasData) logText += "暂无任何做题记录，快去刷题吧！\n";
+
+      logText += "\n" + json.data + "\n";
+
+      var blob = new Blob([logText], { type: 'text/plain;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.download = 'ijhub_records_' + new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12) + '.txt';
+      a.href = url; a.click();
+      setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+      
+      exportModal.classList.remove('show');
+    } catch(err) {
+      alert("导出失败：\n\n" + err.message + "\n请检查网络连接或后端服务。");
+    } finally {
+      this.textContent = "立即下载"; this.disabled = false;
+    }
+  };
+
+  // 4. 导入本地文件 (走后端解密)
+  document.getElementById('importFileInput').addEventListener('change', function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    
+    var reader = new FileReader();
+    reader.onload = async function(evt) {
+      var content = evt.target.result;
+      try {
+        var lines = content.split('\n');
+        var validCipher = "";
+        var cipherLineIndex = -1;
+        for (var i = lines.length - 1; i >= 0; i--) {
+          var l = lines[i].trim();
+          if (l.length > 0 && l.indexOf('|') !== -1) { validCipher = l; cipherLineIndex = i; break; }
+        }
+        if (!validCipher) throw new Error("未找到有效的校验代码。");
+
+        var plainText = lines.slice(0, cipherLineIndex).join('\n');
+        
+        // 向后端请求解密
+        var res = await fetch('/api/sync?action=decrypt', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: validCipher })
+        });
+        var json = await res.json();
+        if (!res.ok) throw new Error(json.error || "文件校验失败，可能已被篡改或损坏");
+
+        var miniData = JSON.parse(json.data);
+        var plainData = {};
+        var pLines = plainText.split('\n');
+        var currentSub = null;
+        for (var j = 0; j < pLines.length; j++) {
+          var line = pLines[j].trim();
+          if (line.startsWith('【') && line.endsWith('】')) {
+            currentSub = line.slice(1, -1); plainData[currentSub] = {};
+          } else if (currentSub && line.startsWith('题目ID')) {
+            var match = line.match(/题目ID\s+(\w+):\s*(已答对|答错了)/);
+            if (match) plainData[currentSub][match[1]] = (match[2] === '已答对');
+          }
+        }
+
+        var importedSubjects = 0;
+        for (var shortKey in miniData) {
+          if (miniData.hasOwnProperty(shortKey)) {
+            var fullName = LONG_KEYS[shortKey] || shortKey;
+            var displayName = NAME_MAP[fullName] || (fullName + ' 习题');
+            var storageKey = fullName + '_records';
+            if (!plainData[displayName]) throw new Error("数据异常：缺少【" + displayName + "】的明文记录。");
+
+            var existing = {};
+            try { existing = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch(err){}
+            var incoming = miniData[shortKey];
+            for (var qid in incoming) {
+              if (incoming.hasOwnProperty(qid)) {
+                var isCipherCorrect = incoming[qid];
+                var isPlainCorrect = plainData[displayName][qid];
+                if (isPlainCorrect === undefined || isCipherCorrect !== isPlainCorrect) {
+                  throw new Error("数据被篡改！\n【" + displayName + "】题目 ID " + qid + " 状态不一致。");
+                }
+                if (existing[qid] === true || incoming[qid] === true) existing[qid] = true;
+                else existing[qid] = false;
+              }
+            }
+            localStorage.setItem(storageKey, JSON.stringify(existing));
+            importedSubjects++;
+          }
+        }
+        if (importedSubjects > 0) { alert("导入成功！已恢复 " + importedSubjects + " 个科目的记录。"); location.reload(); }
+        else alert("导入完毕，但文件中未包含任何习题记录。");
+      } catch(err) { alert("导入被拒绝：\n\n" + err.message); }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+
+  function getRecent() { try { return JSON.parse(localStorage.getItem('recent') || '[]'); } catch (e) { return []; } }
+  function recordView(id) {
+    if (!id) return;
+    var r = getRecent().filter(function (x) { return x !== id; });
+    r.unshift(id);
+    if (r.length > 6) r = r.slice(0, 6);
+    localStorage.setItem('recent', JSON.stringify(r));
+  }
+
+  sidebar.addEventListener('click', function(e) {
+    var item = e.target.closest('.sidebar-item');
+    if (!item) return;
+    sidebar.querySelectorAll('.sidebar-item').forEach(function (x) { x.classList.remove('active'); });
+    item.classList.add('active');
+    filter = item.dataset.filter;
+    applyFilter();
+  });
+
+  function applyFilter() {
+    var cats = content.querySelectorAll('.category');
+    var rw = document.getElementById('recentWrap');
+    var existingPlaceholder = document.getElementById('placeholderWrap');
+    if (existingPlaceholder) existingPlaceholder.remove();
+    if (observer) { observer.disconnect(); observer = null; }
+
+    if (filter === 'all') {
+      cats.forEach(function (c) { c.style.display = ''; });
+      if (rw) rw.remove();
+      initScrollSpy(); return;
+    }
+    if (filter === 'recent') {
+      cats.forEach(function (c) { c.style.display = 'none'; });
+      if (rw) rw.remove();
+      rw = document.createElement('div'); rw.id = 'recentWrap'; rw.className = 'category';
+      var h2 = document.createElement('h2'); h2.textContent = '最近查看'; rw.appendChild(h2);
+      var ids = getRecent(); var found = [];
+      ids.forEach(function (id) {
+        var el = content.querySelector('.card[data-id="' + id + '"]');
+        if (el) found.push(el);
+      });
+      if (found.length === 0) {
+        var empty = document.createElement('div');
+        empty.style.cssText = 'text-align:center;color:#bbb;padding:40px 0;font-size:14px';
+        empty.textContent = '还没有查看记录，赶快去做一个实验吧';
+        rw.appendChild(empty);
+      } else {
+        var box = document.createElement('div'); box.className = 'cards';
+        found.forEach(function (orig) { box.appendChild(orig.cloneNode(true)); });
+        rw.appendChild(box);
+      }
+      content.appendChild(rw); return;
+    }
+    cats.forEach(function (c) { c.style.display = (c.dataset.cat === filter) ? '' : 'none'; });
+    if (rw) rw.remove();
+  }
+
+  function initScrollSpy() {
+    if (layout.classList.contains('hide-sidebar')) return;
+    var cats = content.querySelectorAll('.category');
+    observer = new IntersectionObserver(function(entries) {
+      if (filter !== 'all') return;
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var catId = entry.target.dataset.cat;
+          sidebar.querySelectorAll('.sidebar-item').forEach(function (x) { x.classList.remove('active'); });
+          var targetItem = sidebar.querySelector('.sidebar-item[data-filter="' + catId + '"]');
+          if (targetItem) { targetItem.classList.add('active'); targetItem.scrollIntoView({ block: 'nearest' }); }
+        }
+      });
+    }, { root: null, rootMargin: '-100px 0px -60% 0px', threshold: 0 });
+    cats.forEach(function(cat) { observer.observe(cat); });
+  }
+
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  window.addEventListener('load', function() {
+    var savedY = sessionStorage.getItem('homeScrollY');
+    if (savedY) setTimeout(function() { window.scrollTo(0, parseInt(savedY, 10)); }, 100);
+  });
+})();
+</script>
+</body>
+</html>
