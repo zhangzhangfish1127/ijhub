@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>404 - 页面走丢了 · 初中科学动态实验室</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .error-page {
+    max-width: 600px; margin: 80px auto; text-align: center;
+    background: #fff; padding: 50px 30px; border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    box-sizing: border-box; padding-left: 20px; padding-right: 20px;
+  }
+  .error-code {
+    font-size: 96px; font-weight: 900; color: #e2e8f0;
+    line-height: 1; margin-bottom: 10px; letter-spacing: 4px;
+    text-shadow: 2px 2px 0 #fff, 4px 4px 0 #cbd5e1;
+  }
+  .error-page h1 { color: #2c3e50; margin: 0 0 12px; font-size: 24px; }
+  .error-page p { color: #7f8c8d; font-size: 15px; margin-bottom: 30px; }
+  .btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px; }
+  .btn {
+    display: inline-block; padding: 10px 24px; text-decoration: none; border-radius: 8px;
+    font-size: 15px; font-weight: bold; transition: 0.2s; border: none; cursor: pointer;
+  }
+  .btn-home { background: #3498db; color: #fff; }
+  .btn-home:hover { background: #2980b9; transform: translateY(-2px); }
+  .btn-feedback { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .btn-feedback:hover { background: #e2e8f0; transform: translateY(-2px); }
+</style>
+</head>
+<body>
+  <div class="error-page">
+    <div class="error-code">404</div>
+    <h1>实验跑丢了</h1>
+    <p>你访问的页面可能尚未完成，或者网址不小心打错了。</p>
+    
+    <div class="btn-group">
+      <a class="btn btn-home" href="/index.html">返回主页</a>
+      <a class="btn btn-feedback" href="/feedback.html">报告错误</a>
+    </div>
+
+    <div style="font-size: 13px; color: #94a3b8; border-top: 1px dashed #e2e8f0; padding-top: 20px;">
+      如果您是从其他链接跳转过来的，欢迎去反馈页告诉我们。
+    </div>
+  </div>
+  <script src="/shared/common.js"></script>
+  <script>if(window.App) App.injectTopbar();</script>
+</body>
+</html>
