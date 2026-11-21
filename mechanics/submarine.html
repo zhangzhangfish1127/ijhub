@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>潜水艇的浮沉 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table th { white-space: nowrap; }
+  .case-table td:first-child { width: 30px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .readout .hl { color: #e74c3c; font-weight: 700; }
+  .readout .ok { color: #27ae60; font-weight: 700; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row button { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>潜水艇的浮沉</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>条件</th><th>现象</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>F浮 &gt; G</td><td>排出压载水，上浮</td></tr>
+      <tr data-case="2"><td>2</td><td>F浮 = G</td><td>悬浮在任意深度</td></tr>
+      <tr data-case="3"><td>3</td><td>F浮 &lt; G</td><td>注入压载水，下潜</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>压载水舱注水量 <span class="val" id="pctVal">85</span> %
+    <input id="pctRange" type="range" min="0" max="100" step="1" value="85">
+  </label>
+
+  <label>海水密度 ρ海 = <span class="val" id="rhoVal">1.025</span> g/cm³
+    <input id="rhoRange" type="range" min="1.000" max="1.100" step="0.005" value="1.025">
+  </label>
+
+  <label>艇体体积 V = <span class="val" id="volVal">200</span> m³
+    <input id="volRange" type="range" min="150" max="260" step="10" value="200">
+  </label>
+
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce">显示受力箭头</label></div>
+  <div class="row"><input type="checkbox" id="showGauge" checked><label for="showGauge">显示深度标尺</label></div>
+  <div class="row"><input type="checkbox" id="showTank" checked><label for="showTank">显示压载水舱</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">操作</p>
+  <button id="diveBtn">下潜（注水）</button>
+  <button id="riseBtn" class="secondary">上浮（排水）</button>
+  <div class="btn-row">
+    <button id="trimBtn" class="secondary" style="flex:1">一键配平</button>
+    <button id="resetBtn" class="secondary" style="flex:1">↺ 重置</button>
+  </div>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgHull">艇体</span>
+      <span id="lgWater">压载水</span>
+      <span id="lgFb">浮力 F浮</span>
+      <span id="lgG">重力 G</span>
+    </div>
+    <div class="hint">拖动注水量滑块，观察潜水艇如何靠“改变自身重力”实现浮沉</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function () {
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var G_ACC = 9.8;
+  var MAX_DEPTH = 140;          // m，画布深度范围
+  var HULL_H = 8;               // m，艇体高度（用于计算浸没比例）
+
+  var rhoSea = 1025;            // kg/m³
+  var volHull = 200;            // m³
+  var pctWater = 85;            // %
+
+  var showForce = true, showGauge = true, showTank = true;
+
+  var depth = 60;               // m，艇体中心深度
+  var vSpeed = 0;               // m/s
+  var propeller = 0;
+  var bubbles = [];
+  var lastState = 0;
+
+  /* ===== 主题 ===== */
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  /* ===== 尺寸 ===== */
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  function layout() {
+    var compact = W < 520;
+    var surfaceY = H * (compact ? 0.16 : 0.15);
+    var floorY = H * 0.94;
+    var subW = Math.min(W * (compact ? 0.50 : 0.40), 330);
+    var subH = subW * 0.30;
+    var cx = compact ? W * 0.47 : W * 0.46;
+    var gaugeX = compact ? W * 0.94 : W * 0.89;
+    return {
+      surfaceY: surfaceY, floorY: floorY,
+      subW: subW, subH: subH, cx: cx,
+      gaugeX: gaugeX, compact: compact
+    };
+  }
+
+  function depthToY(d) {
+    var L = layout();
+    var t = Math.max(-0.12, Math.min(1, d / MAX_DEPTH));
+    return L.surfaceY + t * (L.floorY - L.surfaceY);
+  }
+
+  /* ===== 物理 ===== */
+  function volBallast() { return volHull * 0.20; }              // m³，水舱容积
+  function massHull() { return volHull * rhoSea * 0.83; }        // kg
+  function massWater() { return volBallast() * (pctWater / 100) * rhoSea; }
+  function massTotal() { return massHull() + massWater(); }
+  function displacement() { return volHull * rhoSea; }           // kg，排水量当量
+
+  function subFraction() {
+    // 艇体中心深度 d，艇高 HULL_H：d=-H/2 全露，d=+H/2 全没
+    return Math.max(0, Math.min(1, depth / HULL_H + 0.5));
+  }
+  function buoyancy() { return rhoSea * G_ACC * volHull * subFraction() / 1000; }  // kN
+  function gravity() { return massTotal() * G_ACC / 1000; }                         // kN
+  function netForce() { return buoyancy() - gravity(); }
+
+  function stateCode() {
+    var f = buoyancy();
+    if (f <= 0.001) return 3;
+    var rel = Math.abs(netForce()) / f;
+    if (rel < 0.008) return 2;
+    return netForce() > 0 ? 1 : 3;
+  }
+
+  function targetSpeed() {
+    // 净力为负（F浮 < G）时下潜，深度增大；为正时上浮，深度减小
+    var n = netForce();                 // kN
+    return Math.max(-22, Math.min(22, -n / 2.2));
+  }
+
+  function pressure() { return rhoSea * G_ACC * Math.max(0, depth) / 1000; }  // kPa
+
+  /* ===== 绘图工具 ===== */
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 7;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 4; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  function mix(a, b, t) {
+    function hex(c) { return [parseInt(c.substr(1, 2), 16), parseInt(c.substr(3, 2), 16), parseInt(c.substr(5, 2), 16)]; }
+    var A = hex(a), B = hex(b);
+    return 'rgb(' + Math.round(A[0] + (B[0] - A[0]) * t) + ',' +
+      Math.round(A[1] + (B[1] - A[1]) * t) + ',' +
+      Math.round(A[2] + (B[2] - A[2]) * t) + ')';
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw(dt) {
+    var L = layout();
+    var g = gray();
+    var TH = App.getTheme();
+
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#6a6a6a' : '#7f8c8d';
+    var cFb = g ? '#ffffff' : TH.ray1;
+    var cG = g ? '#ffffff' : TH.ray2;
+
+    /* --- 物理步进 --- */
+    if (dt) {
+      var vt = targetSpeed();
+      vSpeed += (vt - vSpeed) * Math.min(1, dt * 2.6);
+      depth += vSpeed * dt;
+      if (depth < -HULL_H) { depth = -HULL_H; vSpeed = 0; }
+      if (depth > MAX_DEPTH) { depth = MAX_DEPTH; vSpeed = 0; }
+      propeller += vSpeed * dt * 9;
+    }
+
+    /* --- 天空与海 --- */
+    ctx.clearRect(0, 0, W, H);
+
+    var sky = ctx.createLinearGradient(0, 0, 0, L.surfaceY);
+    if (g) {
+      sky.addColorStop(0, '#f2f2f2'); sky.addColorStop(1, '#dcdcdc');
+    } else {
+      sky.addColorStop(0, '#dff1fb'); sky.addColorStop(1, '#bfe3f5');
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, L.surfaceY);
+
+    var sea = ctx.createLinearGradient(0, L.surfaceY, 0, L.floorY);
+    if (g) {
+      sea.addColorStop(0, '#9a9a9a');
+      sea.addColorStop(0.55, '#7a7a7a');
+      sea.addColorStop(1, '#4a4a4a');
+    } else {
+      sea.addColorStop(0, '#79c6e8');
+      sea.addColorStop(0.5, '#3d8fbb');
+      sea.addColorStop(1, '#164a6b');
+    }
+    ctx.fillStyle = sea;
+    ctx.fillRect(0, L.surfaceY, W, L.floorY - L.surfaceY + 1);
+
+    /* --- 光柱 --- */
+    if (!g) {
+      ctx.save();
+      ctx.globalAlpha = 0.10;
+      ctx.fillStyle = '#ffffff';
+      for (var k = 0; k < 4; k++) {
+        var bx = W * (0.12 + k * 0.24);
+        ctx.beginPath();
+        ctx.moveTo(bx, L.surfaceY);
+        ctx.lineTo(bx + W * 0.05, L.surfaceY);
+        ctx.lineTo(bx + W * 0.13, L.floorY);
+        ctx.lineTo(bx - W * 0.02, L.floorY);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    /* --- 海底 --- */
+    ctx.save();
+    ctx.fillStyle = g ? '#3a3a3a' : '#0e3b56';
+    ctx.beginPath();
+    ctx.moveTo(0, L.floorY);
+    for (var sx = 0; sx <= W; sx += 20) {
+      ctx.lineTo(sx, L.floorY + Math.sin(sx / 70) * 4);
+    }
+    ctx.lineTo(W, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    /* --- 水波纹 --- */
+    ctx.save();
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.80)';
+    ctx.lineWidth = 2;
+    var tt = Date.now() / 950;
+    ctx.beginPath();
+    for (var x = 0; x <= W; x += 4) {
+      var wy = L.surfaceY + Math.sin(x / 32 + tt) * 2.2 + Math.sin(x / 71 - tt * 0.7) * 1.2;
+      if (x === 0) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    /* --- 深度标尺 --- */
+    if (showGauge) drawGauge(L, g, cInk, cMuted);
+
+    /* --- 潜水艇 --- */
+    var cy = depthToY(depth);
+    drawSub(L, cy, g, cInk);
+
+    /* --- 尾流气泡 --- */
+    updateBubble(L, cy, g);
+    for (var b = 0; b < bubbles.length; b++) {
+      var bu = bubbles[b];
+      ctx.save();
+      ctx.globalAlpha = bu.life;
+      ctx.strokeStyle = g ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(bu.x, bu.y, bu.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      bu.y -= bu.v;
+      bu.x += Math.sin(bu.y / 14) * 0.3;
+      bu.life -= 0.012;
+    }
+    for (var q = bubbles.length - 1; q >= 0; q--) {
+      if (bubbles[q].life <= 0 || bubbles[q].y < L.surfaceY - 4) bubbles.splice(q, 1);
+    }
+
+    /* --- 受力箭头 --- */
+    if (showForce) {
+      var w = L.subW, h = L.subH;
+      var fB = buoyancy(), fG = gravity();
+
+      var maxLen = L.compact ? 46 : 76;
+      var lenB = 14 + Math.pow(Math.min(1, fB / 2400), 0.75) * maxLen;
+      var lenG = 14 + Math.pow(Math.min(1, fG / 2400), 0.75) * maxLen;
+
+      var ax = L.cx + w * 0.24;
+      var topY = Math.max(16, cy - h * 0.5 - 6);
+      lenB = Math.min(lenB, topY - 16);
+      arrow(ax, topY, ax, topY - lenB, cFb, 2.8, g);
+      text('F浮', ax + 6, topY - lenB - 2, cFb, 11, 'left', '700');
+
+      var bx2 = L.cx - w * 0.24;
+      var botY = Math.min(L.floorY - 4, Math.max(cy, cy + h * 0.30));
+      lenG = Math.max(26, Math.min(lenG, L.floorY - 4 - botY));
+      arrow(bx2, botY, bx2, botY + lenG, cG, 2.8, g);
+      text('G', bx2 - 6, botY + lenG + 2, cG, 11, 'right', '700');
+    }
+
+    /* --- 顶部标题 --- */
+    var statusTxt = stateCode() === 1 ? '上浮中' : stateCode() === 2 ? '悬浮' : '下潜中';
+    if (L.compact) {
+      text(statusTxt + '　深度 ' + Math.max(0, depth).toFixed(0) + ' m',
+        W * 0.03, H * 0.07, cInk, 11.5, 'left', '700');
+    } else {
+      text(statusTxt, W * 0.03, H * 0.075, cInk, 13.5, 'left', '700');
+      text('深度 ' + Math.max(0, depth).toFixed(0) + ' m　水压 ' + pressure().toFixed(0) + ' kPa',
+        W * 0.03, H * 0.115, cMuted, 12, 'left');
+    }
+
+    document.getElementById('lgHull').style.setProperty('--c', g ? '#8a8a8a' : '#78898f');
+    document.getElementById('lgWater').style.setProperty('--c', g ? '#5a5a5a' : '#3d8fbb');
+    document.getElementById('lgFb').style.setProperty('--c', g ? '#dddddd' : cFb);
+    document.getElementById('lgG').style.setProperty('--c', g ? '#bbbbbb' : cG);
+
+    updateReadout();
+    highlight(stateCode());
+  }
+
+  /* ===== 标尺 ===== */
+  function drawGauge(L, g, cInk, cMuted) {
+    var gx = L.gaugeX;
+    var top = L.surfaceY + 6, bot = L.floorY - 12;
+    ctx.save();
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(gx, top);
+    ctx.lineTo(gx, bot);
+    ctx.stroke();
+
+    var steps = L.compact ? 2 : 4;
+    for (var i = 0; i <= steps; i++) {
+      var d = (MAX_DEPTH / steps) * i;
+      var y = L.surfaceY + (d / MAX_DEPTH) * (bot - top) + 6;
+      ctx.beginPath();
+      ctx.moveTo(gx - 5, y);
+      ctx.lineTo(gx + 5, y);
+      ctx.stroke();
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      text(d.toFixed(0), gx - 9, y, g ? '#fff' : '#ffffff', 10, 'right', '600');
+      ctx.restore();
+    }
+    text('m', gx - 9, top - 8, cMuted, 10, 'right', '600');
+    ctx.restore();
+  }
+
+  /* ===== 潜水艇 ===== */
+  function drawSub(L, cy, g, cInk) {
+    var w = L.subW, h = L.subH;
+    var cx = L.cx;
+    var left = cx - w / 2, top = cy - h / 2;
+
+    ctx.save();
+
+    /* 投影 */
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + h * 0.62, w * 0.42, h * 0.20, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    /* 尾舵 */
+    ctx.fillStyle = g ? '#6f6f6f' : '#5d6d73';
+    ctx.beginPath();
+    ctx.moveTo(left + w * 0.10, cy);
+    ctx.lineTo(left - w * 0.02, cy - h * 0.42);
+    ctx.lineTo(left + w * 0.02, cy - h * 0.42);
+    ctx.lineTo(left + w * 0.10, cy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(left + w * 0.10, cy);
+    ctx.lineTo(left - w * 0.02, cy + h * 0.42);
+    ctx.lineTo(left + w * 0.02, cy + h * 0.42);
+    ctx.lineTo(left + w * 0.10, cy);
+    ctx.closePath();
+    ctx.fill();
+
+    /* 艇体 */
+    var hull = ctx.createLinearGradient(0, top, 0, top + h);
+    if (g) {
+      hull.addColorStop(0, '#c9c9c9');
+      hull.addColorStop(0.35, '#9e9e9e');
+      hull.addColorStop(1, '#5e5e5e');
+    } else {
+      hull.addColorStop(0, '#a9bcc4');
+      hull.addColorStop(0.32, '#7e9299');
+      hull.addColorStop(0.7, '#5b6c73');
+      hull.addColorStop(1, '#3c4a50');
+    }
+    rr(left, top, w, h, h / 2);
+    ctx.fillStyle = hull;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#4a4a4a' : '#2f3d43';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    /* 压载水舱（内部） */
+    if (showTank) {
+      var tankW = w * 0.20, tankH = h * 0.62;
+      var tankY = top + h * 0.19;
+      var tanks = [left + w * 0.09, left + w * 0.71];
+      var fill = pctWater / 100;
+      for (var t = 0; t < 2; t++) {
+        var tx = tanks[t];
+        ctx.save();
+        rr(tx, tankY, tankW, tankH, 4);
+        ctx.clip();
+        ctx.fillStyle = g ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.16)';
+        ctx.fillRect(tx, tankY, tankW, tankH);
+        var fh = tankH * fill;
+        var wg = ctx.createLinearGradient(0, tankY + tankH - fh, 0, tankY + tankH);
+        if (g) { wg.addColorStop(0, '#8f8f8f'); wg.addColorStop(1, '#5d5d5d'); }
+        else { wg.addColorStop(0, '#7fd0f0'); wg.addColorStop(1, '#2b7ba3'); }
+        ctx.fillStyle = wg;
+        ctx.fillRect(tx, tankY + tankH - fh, tankW, fh);
+        ctx.restore();
+        rr(tx, tankY, tankW, tankH, 4);
+        ctx.strokeStyle = g ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+      }
+    }
+
+    /* 指挥塔 */
+    var tw = w * 0.20, th = h * 0.52;
+    var tlx = cx - w * 0.24;
+    var tly = top - th + 2;
+    var towerG = ctx.createLinearGradient(tlx, tly, tlx + tw, tly + th);
+    if (g) { towerG.addColorStop(0, '#b5b5b5'); towerG.addColorStop(1, '#6d6d6d'); }
+    else { towerG.addColorStop(0, '#93a7ae'); towerG.addColorStop(1, '#4b5a60'); }
+    rr(tlx, tly, tw, th, 5);
+    ctx.fillStyle = towerG;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#4a4a4a' : '#2f3d43';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    /* 潜望镜 */
+    if (!L.compact) {
+      ctx.strokeStyle = g ? '#555' : '#39464b';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(tlx + tw * 0.5, tly);
+      ctx.lineTo(tlx + tw * 0.5, tly - h * 0.52);
+      ctx.lineTo(tlx + tw * 0.5 + 7, tly - h * 0.52);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(tlx + tw * 0.5 + 7, tly - h * 0.52, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = g ? '#333' : '#1f2f34';
+      ctx.fill();
+    }
+
+    /* 舷窗 */
+    if (!L.compact) {
+      for (var i = 0; i < 3; i++) {
+        var px = left + w * (0.37 + i * 0.13);
+        ctx.beginPath();
+        ctx.arc(px, cy, h * 0.11, 0, Math.PI * 2);
+        ctx.fillStyle = g ? 'rgba(255,255,255,0.55)' : 'rgba(190,235,255,0.85)';
+        ctx.fill();
+        ctx.strokeStyle = g ? '#444' : '#2b3940';
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+    }
+
+    /* 螺旋桨 */
+    var pxx = left + w * 0.055;
+    ctx.save();
+    ctx.translate(pxx, cy);
+    ctx.rotate(propeller);
+    ctx.strokeStyle = g ? '#d0d0d0' : '#c8d6db';
+    ctx.lineWidth = 2;
+    for (var bl = 0; bl < 4; bl++) {
+      var a = (Math.PI / 2) * bl;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * h * 0.36, Math.sin(a) * h * 0.36);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
+    ctx.fillStyle = g ? '#bbb' : '#e0e9ec';
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  /* ===== 气泡 ===== */
+  function updateBubble(L, cy, g) {
+    if (Math.abs(vSpeed) < 0.6) return;
+    if (Math.random() > 0.3) return;
+    var dir = vSpeed > 0 ? -1 : 1;
+    bubbles.push({
+      x: L.cx + (Math.random() - 0.5) * L.subW * 0.7,
+      y: cy + dir * L.subH * 0.55,
+      r: 1 + Math.random() * 2,
+      v: 0.6 + Math.random() * 1.1,
+      life: 0.85
+    });
+    if (bubbles.length > 40) bubbles.shift();
+  }
+
+  /* ===== 读数 ===== */
+  function updateReadout() {
+    var s = stateCode();
+    var label = s === 1 ? '上浮' : s === 2 ? '悬浮' : '下潜';
+    var g0 = gray();
+    var color = g0 ? '#555555' : (s === 1 ? '#27ae60' : s === 2 ? '#3498db' : '#e74c3c');
+    var okc = g0 ? '#333333' : '#27ae60';
+    var ok = function (t) { return '<br><span style="color:' + okc + ';font-weight:700">' + t + '</span>'; };
+    var fB = buoyancy(), fG = gravity();
+    var mw = massWater() / 1000, mh = massHull() / 1000;
+
+    var html = '';
+    html += '排水量 <b>' + (displacement() / 1000).toFixed(1) + '</b> t　艇重 <b>' + (mh).toFixed(1) + '</b> t<br>';
+    html += '压载水 <b>' + mw.toFixed(1) + '</b> t / 满舱 ' + (volBallast() * rhoSea / 1000).toFixed(1) + ' t<br>';
+    html += '总重 G = <b>' + fG.toFixed(0) + '</b> kN<br>';
+    html += '浮力 F浮 = <b>' + fB.toFixed(0) + '</b> kN<br>';
+    html += '状态：<span class="badge" style="background:' + color + '">' + label + '</span>';
+    html += '　净力 <b>' + netForce().toFixed(0) + '</b> kN<br>';
+    html += '深度 <b>' + Math.max(0, depth).toFixed(1) + '</b> m　水压 <b>' + pressure().toFixed(0) + '</b> kPa';
+    if (s === 2) {
+      html += ok('F浮 = G，潜水艇可在任意深度悬浮');
+    } else if (s === 1) {
+      html += ok('排出压载水 → 自身重力减小 → 上浮');
+    } else {
+      html += ok('注入压载水 → 自身重力增大 → 下潜');
+    }
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    if (c === lastState) return;
+    lastState = c;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+
+  /* ===== 交互 ===== */
+  function syncUI() {
+    document.getElementById('pctRange').value = pctWater;
+    document.getElementById('pctVal').textContent = pctWater.toFixed(0);
+    document.getElementById('rhoRange').value = rhoSea / 1000;
+    document.getElementById('rhoVal').textContent = (rhoSea / 1000).toFixed(3);
+    document.getElementById('volRange').value = volHull;
+    document.getElementById('volVal').textContent = volHull.toFixed(0);
+  }
+
+  document.getElementById('pctRange').addEventListener('input', function (e) {
+    pctWater = parseFloat(e.target.value);
+    document.getElementById('pctVal').textContent = pctWater.toFixed(0);
+    draw();
+  });
+  document.getElementById('rhoRange').addEventListener('input', function (e) {
+    rhoSea = parseFloat(e.target.value) * 1000;
+    document.getElementById('rhoVal').textContent = (rhoSea / 1000).toFixed(3);
+    draw();
+  });
+  document.getElementById('volRange').addEventListener('input', function (e) {
+    volHull = parseFloat(e.target.value);
+    document.getElementById('volVal').textContent = volHull.toFixed(0);
+    draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function (e) { showForce = e.target.checked; draw(); });
+  document.getElementById('showGauge').addEventListener('change', function (e) { showGauge = e.target.checked; draw(); });
+  document.getElementById('showTank').addEventListener('change', function (e) { showTank = e.target.checked; draw(); });
+
+  document.getElementById('diveBtn').addEventListener('click', function () {
+    pctWater = 100; syncUI(); draw();
+  });
+  document.getElementById('riseBtn').addEventListener('click', function () {
+    pctWater = 20; syncUI(); draw();
+  });
+  document.getElementById('trimBtn').addEventListener('click', function () {
+    // 配平：让总重 = 当前浸没状态下的浮力
+    var need = (buoyancy() * 1000 / G_ACC - massHull()) / (rhoSea * volBallast()) * 100;
+    pctWater = Math.max(0, Math.min(100, Math.round(need)));
+    syncUI(); draw();
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    rhoSea = 1025; volHull = 200; pctWater = 85;
+    depth = 60; vSpeed = 0; bubbles = []; propeller = 0;
+    showForce = true; showGauge = true; showTank = true;
+    document.getElementById('showForce').checked = true;
+    document.getElementById('showGauge').checked = true;
+    document.getElementById('showTank').checked = true;
+    syncUI(); draw();
+  });
+
+  window.addEventListener('themechange', function () { draw(); });
+  window.addEventListener('resize', function () { fit(); draw(); });
+
+  /* ===== 主循环 ===== */
+  var lastFrame = 0;
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);
+    lastFrame = ts;
+    draw(dt);
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  syncUI();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
