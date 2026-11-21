@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>液体压强与压强计 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side select {
+    width: 100%; padding: 6px 8px; margin-top: 4px; font-size: 13px;
+    border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #2c3e50;
+  }
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table td:first-child { width: 34px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .readout .hl { color: #e74c3c; font-weight: 700; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>液体压强与压强计</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>条件</th><th>现象</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>深度增加</td><td>压强变大，U 形管液面差变大</td></tr>
+      <tr data-case="2"><td>2</td><td>换密度更大的液体</td><td>同一深度压强变大</td></tr>
+      <tr data-case="3"><td>3</td><td>同一深度改变朝向</td><td>压强不变，与方向无关</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>探头深度 h = <span class="val" id="hVal">10.0</span> cm
+    <input id="hRange" type="range" min="1" max="20" step="0.5" value="10">
+  </label>
+
+  <label>液体种类
+    <select id="liqSel">
+      <option value="water" selected>水（1.00 g/cm³）</option>
+      <option value="salt">盐水（1.10 g/cm³）</option>
+      <option value="alcohol">酒精（0.80 g/cm³）</option>
+      <option value="mercury">水银（13.60 g/cm³）</option>
+    </select>
+  </label>
+
+  <div class="row">
+    <label for="dirSel" style="white-space:nowrap">橡皮膜朝向</label>
+    <select id="dirSel" style="flex:1; margin-top:0">
+      <option value="down" selected>朝下</option>
+      <option value="up">朝上</option>
+      <option value="side">朝侧面</option>
+    </select>
+  </div>
+
+  <div class="row"><input type="checkbox" id="showScale" checked><label for="showScale" style="margin:0">显示刻度尺</label></div>
+  <div class="row"><input type="checkbox" id="showDiff" checked><label for="showDiff" style="margin:0">显示 U 形管液面差标注</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">演示</p>
+  <button id="playBtn">▶ 播放</button>
+  <button class="secondary" id="resetBtn">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgLiq">液体</span>
+      <span id="lgProbe">压强计探头</span>
+      <span id="lgDiff">液面差 Δh</span>
+    </div>
+    <div class="hint">拖动探头改变深度，观察 U 形管两侧液面差</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var LIQ = {
+    water:   { name: '水',   rho: 1.00, top: '#8fd0f2', bot: '#2f86c8' },
+    salt:    { name: '盐水', rho: 1.10, top: '#7fc5e8', bot: '#2670a8' },
+    alcohol: { name: '酒精', rho: 0.80, top: '#b9d7ea', bot: '#6f93b5' },
+    mercury: { name: '水银', rho: 13.6, top: '#d5d9dd', bot: '#8b939c' }
+  };
+
+  var h = 10;              // 深度 cm
+  var liqKey = 'water';
+  var dir = 'down';
+  var showScale = true;
+  var showDiff = true;
+  var probeX = 0;          // 世界坐标（像素），初始化时落在容器中部
+  var lastCase = '1';
+  var playing = false;
+  var playDir = 1;
+  var rafId = null;
+  var lastT = 0;
+  var drag = false;
+  var blobs = [];          // 橡皮膜上的小气泡装饰
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  /* ===== 尺寸自适应 ===== */
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  /* ===== 布局 ===== */
+  function layout() {
+    var tank = {
+      x: W * 0.09,
+      y: H * 0.17,
+      w: W * 0.40,
+      h: H * 0.70
+    };
+    tank.surfaceY = tank.y + 16;
+    tank.bottomY = tank.y + tank.h;
+    var usable = tank.bottomY - tank.surfaceY - 18;
+    var k = usable / 20;                    // 1cm 对应像素
+
+    var u = {
+      x: W * 0.615,
+      w: 15,
+      gap: W * 0.085,
+      top: H * 0.20,
+      bottom: H * 0.74
+    };
+    u.x2 = u.x + u.gap;                     // 右管左边缘
+    u.mid = (u.top + u.bottom) / 2;
+
+    return { tank: tank, k: k, u: u };
+  }
+
+  /* ===== 物理 ===== */
+  function pressure() {
+    var rho = LIQ[liqKey].rho;
+    if (!(h > 0) || !(rho > 0)) return 0;
+    return 98 * rho * h;                    // Pa：ρ(g/cm³)×g×h(cm)
+  }
+  function diffCm() {
+    var p = pressure();
+    return p / 98;                           // 折算成 cm 水柱
+  }
+
+  /* ===== 绘图小工具 ===== */
+  function rr(x, y, w, hh, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + hh - r);
+    ctx.quadraticCurveTo(x + w, y + hh, x + w - r, y + hh);
+    ctx.lineTo(x + r, y + hh);
+    ctx.quadraticCurveTo(x, y + hh, x, y + hh - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function dashLine(x1, y1, x2, y2, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw() {
+    var L = layout();
+    var tank = L.tank, k = L.k, u = L.u;
+    var liq = LIQ[liqKey];
+    var g = gray();
+    var TH = App.getTheme();
+
+    ctx.clearRect(0, 0, W, H);
+
+    var cWaterTop = g ? '#9d9d9d' : liq.top;
+    var cWaterBot = g ? '#6b6b6b' : liq.bot;
+    var cGlass = g ? '#bbbbbb' : '#c7d6e2';
+    var cGlassHi = g ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.55)';
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#666666' : '#7f8c8d';
+    var cProbe = g ? '#8a8a8a' : '#95a5a6';
+    var cProbeDark = g ? '#555555' : '#5d6d7e';
+    var cDiff = TH.ray1;
+    var cPipe = g ? '#dddddd' : '#e8eef3';
+
+    /* --- 容器玻璃后壁 --- */
+    ctx.save();
+    ctx.fillStyle = g ? 'rgba(0,0,0,0.04)' : 'rgba(236,244,250,0.75)';
+    rr(tank.x, tank.y, tank.w, tank.h, 10);
+    ctx.fill();
+    ctx.restore();
+
+    /* --- 液体 --- */
+    ctx.save();
+    rr(tank.x + 6, tank.surfaceY, tank.w - 12, tank.bottomY - tank.surfaceY, 4);
+    ctx.clip();
+    var grd = ctx.createLinearGradient(0, tank.surfaceY, 0, tank.bottomY);
+    grd.addColorStop(0, cWaterTop);
+    grd.addColorStop(1, cWaterBot);
+    ctx.fillStyle = grd;
+    ctx.fillRect(tank.x, tank.surfaceY - 4, tank.w, tank.h);
+
+    // 液面波纹
+    var t = Date.now() / 900;
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    for (var x = tank.x; x <= tank.x + tank.w; x += 4) {
+      var y = tank.surfaceY + Math.sin(x / 26 + t) * 1.8;
+      if (x === tank.x) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    /* --- 容器玻璃前壁与高光 --- */
+    ctx.save();
+    ctx.strokeStyle = cGlass;
+    ctx.lineWidth = 3;
+    rr(tank.x, tank.y, tank.w, tank.h, 10);
+    ctx.stroke();
+    ctx.strokeStyle = cGlassHi;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tank.x + 12, tank.y + 16);
+    ctx.lineTo(tank.x + 12, tank.bottomY - 20);
+    ctx.stroke();
+    ctx.restore();
+
+    /* --- 刻度尺 --- */
+    var probeY = tank.surfaceY + h * k;
+    if (showScale) {
+      var sx = tank.x + 8;
+      ctx.save();
+      ctx.strokeStyle = g ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(sx, tank.surfaceY);
+      ctx.lineTo(sx, tank.surfaceY + 20 * k);
+      ctx.stroke();
+      for (var cm = 0; cm <= 20; cm += 2) {
+        var yy = tank.surfaceY + cm * k;
+        var big = (cm % 10 === 0);
+        ctx.beginPath();
+        ctx.moveTo(sx, yy);
+        ctx.lineTo(sx + (big ? 10 : 6), yy);
+        ctx.stroke();
+        if (cm % 4 === 0) text(cm + '', sx + 13, yy, g ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.95)', 10, 'left');
+      }
+      // 深度指示
+      dashLine(sx, probeY, tank.x + tank.w * 0.55, probeY, 'rgba(255,255,255,0.85)');
+      // h 读数胶囊（避免压在刻度与软管上）
+      var labTxt = 'h = ' + h.toFixed(1) + ' cm';
+      var labW = 74, labH = 18;
+      var labX = tank.x + tank.w - labW - 8;
+      var labY = Math.min(tank.bottomY - labH - 6, probeY + 26);
+      ctx.save();
+      ctx.fillStyle = g ? 'rgba(0,0,0,0.55)' : 'rgba(44,62,80,0.62)';
+      rr(labX, labY, labW, labH, 9);
+      ctx.fill();
+      ctx.restore();
+      text(labTxt, labX + labW / 2, labY + labH / 2, '#ffffff', 10.5, 'center', '700');
+      ctx.restore();
+    }
+
+    /* --- 软管：探头 → U 形管 --- */
+    var tubeStartX = probeX + 16;
+    var tubeStartY = probeY - 4;
+    var tubeEndX = u.x + u.w / 2;
+    var tubeEndY = u.top - 6;
+    ctx.save();
+    ctx.strokeStyle = cPipe;
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tubeStartX, tubeStartY);
+    ctx.bezierCurveTo(tubeStartX + 40, tubeStartY - 36, tubeEndX - 30, tubeEndY - 20, tubeEndX, tubeEndY);
+    ctx.stroke();
+    ctx.strokeStyle = g ? '#999999' : '#cbd9e4';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tubeStartX, tubeStartY);
+    ctx.bezierCurveTo(tubeStartX + 40, tubeStartY - 36, tubeEndX - 30, tubeEndY - 20, tubeEndX, tubeEndY);
+    ctx.stroke();
+    ctx.restore();
+
+    /* --- 探头 --- */
+    drawProbe(probeX, probeY, dir, pressure(), cProbe, cProbeDark, cInk, g);
+
+    /* --- U 形管压强计 --- */
+    drawManometer(u, pressure(), cPipe, g, cInk, cMuted, cDiff);
+
+    /* --- 顶部标题标注 --- */
+    text(liq.name + '　ρ = ' + liq.rho.toFixed(2) + ' g/cm³', tank.x, tank.y - 14, cInk, 13, 'left', '600');
+    text('U 形管压强计', u.x - 6, u.top - 22, cInk, 13, 'left', '600');
+
+    /* --- 图例色块同步 --- */
+    document.getElementById('lgLiq').style.setProperty('--c', cWaterBot);
+    document.getElementById('lgProbe').style.setProperty('--c', cProbeDark);
+    document.getElementById('lgDiff').style.setProperty('--c', cDiff);
+
+    updateReadout();
+    highlight(lastCase);
+  }
+
+  function drawProbe(x, y, d, p, cP, cPD, cInk, g) {
+    ctx.save();
+    // 连接杆
+    ctx.strokeStyle = cPD;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 2);
+    ctx.lineTo(x, y - 16);
+    ctx.stroke();
+
+    // 探头主体
+    ctx.fillStyle = cP;
+    rr(x - 19, y - 16, 38, 30, 8);
+    ctx.fill();
+    ctx.strokeStyle = cPD;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    // 橡皮膜：凹陷深度随压强
+    var sag = Math.min(5, p / 900);
+    ctx.fillStyle = g ? '#d8d8d8' : '#cfd8dc';
+    ctx.strokeStyle = cPD;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    if (d === 'down') {
+      ctx.moveTo(x - 16, y + 13);
+      ctx.quadraticCurveTo(x, y + 13 + sag * 2.2, x + 16, y + 13);
+    } else if (d === 'up') {
+      ctx.moveTo(x - 16, y - 16);
+      ctx.quadraticCurveTo(x, y - 16 - sag * 2.2, x + 16, y - 16);
+    } else {
+      ctx.moveTo(x + 18, y - 13);
+      ctx.quadraticCurveTo(x + 18 + sag * 2.2, y + 0, x + 18, y + 11);
+    }
+    ctx.stroke();
+
+    // 高光
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    rr(x - 14, y - 12, 8, 14, 3);
+    ctx.fill();
+
+    // 方向箭头
+    ctx.strokeStyle = cInk;
+    ctx.fillStyle = cInk;
+    ctx.lineWidth = 1.6;
+    var ax = x + 28, ay = y - 2;
+    ctx.beginPath();
+    if (d === 'down') { ctx.moveTo(ax, ay - 6); ctx.lineTo(ax, ay + 6); ctx.lineTo(ax - 4, ay + 2); ctx.moveTo(ax, ay + 6); ctx.lineTo(ax + 4, ay + 2); }
+    else if (d === 'up') { ctx.moveTo(ax, ay + 6); ctx.lineTo(ax, ay - 6); ctx.lineTo(ax - 4, ay - 2); ctx.moveTo(ax, ay - 6); ctx.lineTo(ax + 4, ay - 2); }
+    else { ctx.moveTo(ax - 7, ay); ctx.lineTo(ax + 7, ay); ctx.lineTo(ax + 3, ay - 4); ctx.moveTo(ax + 7, ay); ctx.lineTo(ax + 3, ay + 4); }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawManometer(u, p, cPipe, g, cInk, cMuted, cDiff) {
+    var w = u.w, x1 = u.x, x2 = u.x2;
+    var top = u.top, bottom = u.bottom;
+    var base = u.mid;
+
+    // 玻璃管（U 形）
+    ctx.save();
+    ctx.strokeStyle = cPipe;
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1 + w / 2, top);
+    ctx.lineTo(x1 + w / 2, bottom - 16);
+    ctx.quadraticCurveTo(x1 + w / 2, bottom, x1 + w / 2 + 16, bottom);
+    ctx.lineTo(x2 + w / 2 - 16, bottom);
+    ctx.quadraticCurveTo(x2 + w / 2, bottom, x2 + w / 2, bottom - 16);
+    ctx.lineTo(x2 + w / 2, top);
+    ctx.stroke();
+
+    // 内部液体：液面差（超出管长时按量程上限显示）
+    var fullPx = (bottom - top) * 0.5 - 22;
+    var rawPx = p / 98 * 1.9;
+    var dPx = Math.min(fullPx, rawPx);
+    var lvLeft = base + dPx / 2;      // 接探头一侧被压下
+    var lvRight = base - dPx / 2;
+
+    ctx.strokeStyle = g ? '#3d3d3d' : '#3f9fd8';
+    ctx.lineWidth = w - 6;
+    ctx.beginPath();
+    ctx.moveTo(x1 + w / 2, lvLeft);
+    ctx.lineTo(x1 + w / 2, bottom - 16);
+    ctx.quadraticCurveTo(x1 + w / 2, bottom - 4, x1 + w / 2 + 16, bottom - 4);
+    ctx.lineTo(x2 + w / 2 - 16, bottom - 4);
+    ctx.quadraticCurveTo(x2 + w / 2, bottom - 4, x2 + w / 2, bottom - 16);
+    ctx.lineTo(x2 + w / 2, lvRight);
+    ctx.stroke();
+
+    // 管壁描边
+    ctx.strokeStyle = g ? '#bbbbbb' : '#d5e2ec';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x1 - w / 2, top);
+    ctx.lineTo(x1 - w / 2, bottom - 12);
+    ctx.moveTo(x1 + w / 2 + w / 2, top);
+    ctx.lineTo(x1 + w / 2 + w / 2, bottom - 12);
+    ctx.moveTo(x2 - w / 2, top);
+    ctx.lineTo(x2 - w / 2, bottom - 12);
+    ctx.moveTo(x2 + w / 2 + w / 2, top);
+    ctx.lineTo(x2 + w / 2 + w / 2, bottom - 12);
+    ctx.stroke();
+
+    // 液面差标注：箭头放两管之间，文字放 U 形管下方，窄屏也不会出界
+    if (showDiff && dPx > 3) {
+      var mx = (x1 + w / 2 + x2 + w / 2) / 2;
+      ctx.strokeStyle = cDiff;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(mx, lvRight);
+      ctx.lineTo(mx, lvLeft);
+      ctx.moveTo(mx - 4, lvRight);
+      ctx.lineTo(mx + 4, lvRight);
+      ctx.moveTo(mx - 4, lvLeft);
+      ctx.lineTo(mx + 4, lvLeft);
+      ctx.stroke();
+      var over = rawPx > fullPx + 0.5;
+      text('Δh = ' + diffCm().toFixed(1) + ' cm' + (over ? '（超出量程）' : ''),
+           x1 + (x2 + w - x1) / 2, bottom + 18, cDiff, 11, 'center', '700');
+    }
+
+    ctx.restore();
+  }
+
+  /* ===== 读数与表格 ===== */
+  function updateReadout() {
+    var liq = LIQ[liqKey];
+    var p = pressure();
+    var dTxt = dir === 'down' ? '朝下' : dir === 'up' ? '朝上' : '朝侧面';
+    var html = '';
+    html += '深度 h = <b>' + h.toFixed(1) + '</b> cm　液体：<b>' + liq.name + '</b>（ρ = ' + liq.rho.toFixed(2) + ' g/cm³）<br>';
+    html += 'p = ρgh = <b>' + p.toFixed(0) + '</b> Pa ＝ <span class="hl">' + (p / 1000).toFixed(2) + '</span> kPa<br>';
+    html += 'U 形管液面差 Δh = <b>' + diffCm().toFixed(1) + '</b> cm（水柱）<br>';
+    html += '橡皮膜朝向：<b>' + dTxt + '</b>' + (dir === 'side' ? '——同一深度，朝向不同压强不变' : '');
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+  function setCase(c) { lastCase = c; highlight(c); }
+
+  /* ===== 交互 ===== */
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+  function probePosFromEvent(e) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function hitProbe(p) {
+    var L = layout();
+    var tank = L.tank, k = L.k;
+    var py = tank.surfaceY + h * k;
+    return Math.abs(p.x - probeX) < 30 && Math.abs(p.y - py) < 28;
+  }
+
+  canvas.addEventListener('pointerdown', function(e) {
+    var p = probePosFromEvent(e);
+    if (!hitProbe(p)) return;
+    drag = true;
+    probeX = clamp(p.x, layout().tank.x + 26, layout().tank.x + layout().tank.w - 46);
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    var p = probePosFromEvent(e);
+    if (!drag) {
+      canvas.style.cursor = hitProbe(p) ? 'grab' : 'default';
+      return;
+    }
+    var L = layout();
+    var tank = L.tank, k = L.k;
+    probeX = clamp(p.x, tank.x + 26, tank.x + tank.w - 46);
+    var depth = (p.y - tank.surfaceY) / k;
+    h = clamp(Math.round(depth * 2) / 2, 1, 20);
+    document.getElementById('hRange').value = h;
+    document.getElementById('hVal').textContent = h.toFixed(1);
+    setCase('1');
+    draw();
+  });
+
+  function endDrag(e) {
+    if (!drag) return;
+    drag = false;
+    try { if (canvas.releasePointerCapture) canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', function(e) { if (drag) endDrag(e); });
+
+  document.getElementById('hRange').addEventListener('input', function(e) {
+    h = parseFloat(e.target.value);
+    document.getElementById('hVal').textContent = h.toFixed(1);
+    setCase('1');
+    draw();
+  });
+
+  document.getElementById('liqSel').addEventListener('change', function(e) {
+    liqKey = e.target.value;
+    setCase('2');
+    draw();
+  });
+
+  document.getElementById('dirSel').addEventListener('change', function(e) {
+    dir = e.target.value;
+    setCase('3');
+    draw();
+  });
+
+  document.getElementById('showScale').addEventListener('change', function(e) {
+    showScale = e.target.checked; draw();
+  });
+  document.getElementById('showDiff').addEventListener('change', function(e) {
+    showDiff = e.target.checked; draw();
+  });
+
+  /* ===== 播放 ===== */
+  var playBtn = document.getElementById('playBtn');
+  function stopPlay() {
+    playing = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    playBtn.textContent = '▶ 播放';
+  }
+  function tick(ts) {
+    if (!playing) return;
+    if (!lastT) lastT = ts;
+    var dt = Math.min(0.05, (ts - lastT) / 1000);
+    lastT = ts;
+    h += playDir * 4 * dt;
+    if (h >= 20) { h = 20; playDir = -1; }
+    if (h <= 2) { h = 2; playDir = 1; }
+    document.getElementById('hRange').value = h;
+    document.getElementById('hVal').textContent = h.toFixed(1);
+    setCase('1');
+    draw();
+    rafId = requestAnimationFrame(tick);
+  }
+  playBtn.addEventListener('click', function() {
+    if (playing) { stopPlay(); return; }
+    playing = true;
+    playDir = 1;
+    lastT = 0;
+    playBtn.textContent = '⏸ 暂停';
+    rafId = requestAnimationFrame(tick);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    stopPlay();
+    h = 10; liqKey = 'water'; dir = 'down'; showScale = true; showDiff = true;
+    document.getElementById('hRange').value = 10;
+    document.getElementById('hVal').textContent = '10.0';
+    document.getElementById('liqSel').value = 'water';
+    document.getElementById('dirSel').value = 'down';
+    document.getElementById('showScale').checked = true;
+    document.getElementById('showDiff').checked = true;
+    var L = layout();
+    probeX = L.tank.x + L.tank.w * 0.55;
+    setCase('1');
+    draw();
+  });
+
+  window.addEventListener('themechange', draw);
+  window.addEventListener('resize', function() {
+    fit();
+    var L = layout();
+    probeX = clamp(probeX || L.tank.x + L.tank.w * 0.55, L.tank.x + 26, L.tank.x + L.tank.w - 46);
+    draw();
+  });
+
+  /* ===== 启动 ===== */
+  fit();
+  var L0 = layout();
+  probeX = L0.tank.x + L0.tank.w * 0.55;
+  draw();
+  // 轻量重绘（波纹动画），仅动画时开
+  setInterval(function() { if (!drag && !document.hidden) draw(); }, 130);
+})();
+</script>
+</body>
+</html>
