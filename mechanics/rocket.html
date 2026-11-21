@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>火箭为什么能升空 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table th { white-space: nowrap; }
+  .case-table td:first-child { width: 30px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .readout .ok { color: #27ae60; font-weight: 700; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+  .btn-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>火箭为什么能升空</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>条件</th><th>现象</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>F推 &gt; G</td><td>向上加速，火箭起飞</td></tr>
+      <tr data-case="2"><td>2</td><td>F推 = G</td><td>合力为零，悬停或匀速</td></tr>
+      <tr data-case="3"><td>3</td><td>F推 &lt; G</td><td>推力不足，无法起飞</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>喷气速度 v = <span class="val" id="vgasVal">420</span> m/s
+    <input id="vgasRange" type="range" min="300" max="700" step="10" value="420">
+  </label>
+
+  <label>燃料消耗率 ṁ = <span class="val" id="mdotVal">1.0</span> kg/s
+    <input id="mdotRange" type="range" min="0.4" max="2.0" step="0.1" value="1.0">
+  </label>
+
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce">显示受力箭头</label></div>
+  <div class="row"><input type="checkbox" id="showSmoke" checked><label for="showSmoke">显示尾焰与烟雾</label></div>
+  <div class="row"><input type="checkbox" id="showGauge" checked><label for="showGauge">显示高度标尺</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">操作</p>
+  <button id="igniteBtn">点火升空</button>
+  <div class="btn-row">
+    <button id="cutBtn" class="secondary" style="flex:1">关机</button>
+    <button id="resetBtn" class="secondary" style="flex:1">↺ 重置</button>
+  </div>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgBody">火箭</span>
+      <span id="lgFlame">尾焰</span>
+      <span id="lgThrust">推力 F推</span>
+      <span id="lgG">重力 G</span>
+    </div>
+    <div class="hint">火箭向后高速喷气，气体给火箭一个向前的反作用力——这就是推力的来源</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function () {
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var G_ACC = 9.8;
+  var M_DRY = 10;              // kg 箭体（不含燃料）
+  var M_FUEL0 = 5;             // kg 初始燃料
+  var MAP_H = 500;             // m 画布高度范围
+  var TIME_SCALE = 0.4;        // 演示放慢倍率
+
+  var vGas = 420;
+  var mDot = 1.0;
+  var fuel = M_FUEL0;
+  var height = 0;              // m
+  var vSpeed = 0;              // m/s
+  var ignited = false;
+  var smoke = [];
+  var lastState = 0;
+  var everFlew = false;
+
+  var showForce = true, showSmoke = true, showGauge = true;
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  function layout() {
+    var compact = W < 520;
+    var bodyW = Math.min(W * (compact ? 0.055 : 0.052), 34);
+    var bodyH = bodyW * (compact ? 3.3 : 5.4);
+    var noseH = bodyW * (compact ? 1.1 : 1.5);
+    var total = bodyH + noseH;
+    return {
+      groundY: H * 0.90,
+      topY: H * 0.06,
+      cx: compact ? W * 0.46 : W * 0.44,
+      bodyW: bodyW,
+      bodyH: bodyH,
+      noseH: noseH,
+      total: total,
+      gaugeX: compact ? W * 0.95 : W * 0.90,
+      compact: compact
+    };
+  }
+
+  function hToY(h) {
+    var L = layout();
+    var yMax = L.groundY - 6;
+    var yMin = L.topY + L.total;
+    var t = Math.max(0, Math.min(1, h / MAP_H));
+    return yMax - t * Math.max(20, yMax - yMin);
+  }
+
+  /* ===== 物理 ===== */
+  function mass() { return M_DRY + fuel; }
+  function thrust() { return (ignited && fuel > 0) ? mDot * vGas / 1000 : 0; }   // kN
+  function weight() { return mass() * G_ACC / 1000; }   // kN
+  function netForce() { return ignited && fuel > 0 ? thrust() - weight() : -weight(); }
+  function accel() { return netForce() * 1000 / mass(); }
+
+  function stateCode() {
+    if (!ignited || fuel <= 0) return 0;
+    var t = thrust(), w = weight();
+    if (Math.abs(t - w) / Math.max(0.001, w) < 0.02) return 2;
+    return t > w ? 1 : 3;
+  }
+
+  /* ===== 工具 ===== */
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 7;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 4; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw(dt) {
+    var L = layout();
+    var g = gray();
+    var TH = App.getTheme();
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#5a5a5a' : '#7f8c8d';
+    var cThr = g ? '#1c1c1c' : TH.ray1;
+    var cG = g ? '#666666' : TH.ray2;
+
+    /* --- 物理步进 --- */
+    if (dt) {
+      var sdt = dt * TIME_SCALE;
+      if (ignited && fuel > 0) {
+        fuel = Math.max(0, fuel - mDot * sdt);
+        if (fuel <= 0) ignited = false;
+      }
+      var a = accel();
+      vSpeed += a * sdt;
+      height += vSpeed * sdt;
+      if (height <= 0) {
+        height = 0;
+        if (vSpeed < 0) vSpeed = 0;
+      }
+      if (height > MAP_H) { height = MAP_H; if (vSpeed > 0) vSpeed = 0; }
+      if (height > 3) everFlew = true;
+    }
+
+    /* --- 天空 --- */
+    ctx.clearRect(0, 0, W, H);
+    var sky = ctx.createLinearGradient(0, 0, 0, L.groundY);
+    if (g) {
+      sky.addColorStop(0, '#e8e8e8');
+      sky.addColorStop(0.6, '#d2d2d2');
+      sky.addColorStop(1, '#bdbdbd');
+    } else {
+      sky.addColorStop(0, '#1f3b63');
+      sky.addColorStop(0.42, '#4a86b8');
+      sky.addColorStop(1, '#b9dcf0');
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    /* --- 星点 --- */
+    if (!g) {
+      ctx.save();
+      for (var st = 0; st < 26; st++) {
+        var sx = ((st * 137) % 1000) / 1000 * W;
+        var sy = ((st * 83) % 1000) / 1000 * H * 0.42;
+        ctx.globalAlpha = 0.17 + ((st * 31) % 60) / 220;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    /* --- 地面与发射台 --- */
+    drawPad(L, g);
+
+    /* --- 高度标尺 --- */
+    if (showGauge) drawGauge(L, g);
+
+    /* --- 烟雾 --- */
+    var by = hToY(height);
+    if (showSmoke) {
+      updateSmoke(L, by, g);
+      drawSmoke(g);
+    }
+
+    /* --- 尾焰 --- */
+    if (showSmoke && ignited && fuel > 0) drawFlame(L, by, g);
+
+    /* --- 火箭 --- */
+    drawRocket(L, by, g);
+
+    /* --- 受力箭头 --- */
+    if (showForce) {
+      var fT = thrust() * 1000, fG = weight() * 1000;   // N
+      var maxLen = L.compact ? 44 : 74;
+      var lenT = 14 + Math.pow(Math.min(1, fT / 800), 0.78) * maxLen;
+      var lenG = 14 + Math.pow(Math.min(1, fG / 800), 0.78) * maxLen;
+
+      var cyr = by - L.total * 0.52;
+
+      if (fT > 1) {
+        var ax = L.cx - L.bodyW * 1.45;
+        lenT = Math.min(lenT, cyr - 12);
+        arrow(ax, cyr, ax, cyr - lenT, cThr, 2.8, g);
+        text('F推', ax - 6, cyr - lenT - 2, cThr, 11, 'right', '700');
+      }
+
+      var bx = L.cx + L.bodyW * 1.45;
+      lenG = Math.min(lenG, H - 12 - cyr);
+      arrow(bx, cyr, bx, cyr + lenG, cG, 2.8, g);
+      text('G', bx + 6, cyr + lenG + 2, cG, 11, 'left', '700');
+    }
+
+    /* --- 状态文字 --- */
+    var st = stateCode();
+    var statusTxt = st === 0
+      ? (fuel <= 0 ? '燃料耗尽' : '待发射')
+      : (st === 1 ? '加速上升' : st === 2 ? '悬停' : '推力不足');
+    if (L.compact) {
+      text(statusTxt + '　' + height.toFixed(0) + ' m', W * 0.03, H * 0.06, g ? '#2b2b2b' : '#ffffff', 11.5, 'left', '700');
+    } else {
+      text(statusTxt, W * 0.03, H * 0.065, g ? '#2b2b2b' : '#ffffff', 14, 'left', '700');
+      text('高度 ' + height.toFixed(0) + ' m　速度 ' + vSpeed.toFixed(1) + ' m/s　燃料 ' + fuel.toFixed(2) + ' kg',
+        W * 0.03, H * 0.105, g ? '#555555' : 'rgba(255,255,255,0.92)', 11.5, 'left');
+    }
+
+    document.getElementById('lgBody').style.setProperty('--c', g ? '#9a9a9a' : '#dfe6ea');
+    document.getElementById('lgFlame').style.setProperty('--c', g ? '#dddddd' : '#ff9a3c');
+    document.getElementById('lgThrust').style.setProperty('--c', g ? '#ffffff' : cThr);
+    document.getElementById('lgG').style.setProperty('--c', g ? '#bbbbbb' : cG);
+
+    updateReadout();
+    highlight(st);
+  }
+
+  function drawPad(L, g) {
+    var gy = L.groundY;
+    ctx.save();
+    var gg = ctx.createLinearGradient(0, gy, 0, H);
+    if (g) { gg.addColorStop(0, '#bdbdbd'); gg.addColorStop(1, '#8f8f8f'); }
+    else { gg.addColorStop(0, '#b9a887'); gg.addColorStop(1, '#7d6d52'); }
+    ctx.fillStyle = gg;
+    ctx.fillRect(0, gy, W, H - gy);
+
+    /* 发射台 */
+    var padW = Math.min(W * 0.34, 210);
+    var padH = 10;
+    var px = L.cx - padW / 2;
+    var py = gy - padH;
+    var pg = ctx.createLinearGradient(px, py, px, py + padH);
+    if (g) { pg.addColorStop(0, '#8a8a8a'); pg.addColorStop(1, '#5e5e5e'); }
+    else { pg.addColorStop(0, '#8d99a6'); pg.addColorStop(1, '#5b6672'); }
+    rr(px, py, padW, padH, 3);
+    ctx.fillStyle = pg;
+    ctx.fill();
+
+    /* 塔架 */
+    ctx.strokeStyle = g ? '#6a6a6a' : '#6f7b87';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.moveTo(px + padW * 0.06, py);
+    ctx.lineTo(px + padW * 0.06, py - L.total * 0.72);
+    ctx.stroke();
+    ctx.lineWidth = 1.4;
+    for (var i = 0; i < 4; i++) {
+      var y1 = py - L.total * 0.16 * i;
+      var y2 = py - L.total * 0.16 * (i + 1);
+      ctx.beginPath();
+      ctx.moveTo(px + padW * 0.06, y1);
+      ctx.lineTo(px + padW * 0.14, y2);
+      ctx.stroke();
+    }
+
+    /* 地面线 */
+    ctx.strokeStyle = g ? '#7a7a7a' : 'rgba(90,75,50,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(W, gy);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGauge(L, g) {
+    var gx = L.gaugeX;
+    var bot = hToY(0);
+    var top = hToY(MAP_H);
+    ctx.save();
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(gx, top);
+    ctx.lineTo(gx, bot);
+    ctx.stroke();
+
+    var steps = L.compact ? 2 : 5;
+    for (var i = 0; i <= steps; i++) {
+      var hv = (MAP_H / steps) * i;
+      var y = bot - (hv / MAP_H) * (bot - top);
+      ctx.beginPath();
+      ctx.moveTo(gx - 5, y);
+      ctx.lineTo(gx + 5, y);
+      ctx.stroke();
+      text(hv.toFixed(0), gx - 9, y, g ? '#2b2b2b' : '#ffffff', 10, 'right', '600');
+    }
+    text('m', gx - 9, top - 10, g ? '#2b2b2b' : '#ffffff', 10, 'right', '700');
+
+    var py = hToY(height);
+    ctx.fillStyle = g ? '#ffffff' : '#ffe066';
+    ctx.beginPath();
+    ctx.moveTo(gx, py);
+    ctx.lineTo(gx - 7, py - 5);
+    ctx.lineTo(gx - 7, py + 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRocket(L, baseY, g) {
+    var w = L.bodyW, h = L.bodyH, nose = L.noseH;
+    var cx = L.cx;
+    var left = cx - w / 2;
+    var bodyTop = baseY - h;
+    var noseTop = bodyTop - nose;
+
+    ctx.save();
+
+    /* 尾翼 */
+    ctx.fillStyle = g ? '#8a8a8a' : '#c0392b';
+    [-1, 1].forEach(function (dir) {
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * w * 0.5, baseY - h * 0.30);
+      ctx.lineTo(cx + dir * w * 1.55, baseY - 2);
+      ctx.lineTo(cx + dir * w * 1.55, baseY - h * 0.06);
+      ctx.lineTo(cx + dir * w * 0.5, baseY - h * 0.02);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    /* 箭体 */
+    var bg = ctx.createLinearGradient(left, 0, left + w, 0);
+    if (g) {
+      bg.addColorStop(0, '#dcdcdc');
+      bg.addColorStop(0.35, '#f2f2f2');
+      bg.addColorStop(0.72, '#c4c4c4');
+      bg.addColorStop(1, '#8e8e8e');
+    } else {
+      bg.addColorStop(0, '#c9d4da');
+      bg.addColorStop(0.35, '#ffffff');
+      bg.addColorStop(0.70, '#d8e2e8');
+      bg.addColorStop(1, '#8d9ba3');
+    }
+    ctx.fillStyle = bg;
+    rr(left, bodyTop, w, h, w * 0.14);
+    ctx.fill();
+    ctx.strokeStyle = g ? '#6a6a6a' : '#7c8b93';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    /* 头锥 */
+    var ng = ctx.createLinearGradient(left, noseTop, left + w, noseTop);
+    if (g) { ng.addColorStop(0, '#b0b0b0'); ng.addColorStop(1, '#7a7a7a'); }
+    else { ng.addColorStop(0, '#e04a3a'); ng.addColorStop(1, '#a8301f'); }
+    ctx.fillStyle = ng;
+    ctx.beginPath();
+    ctx.moveTo(cx, noseTop);
+    ctx.quadraticCurveTo(cx + w * 0.52, noseTop + nose * 0.55, cx + w * 0.5, bodyTop + 1);
+    ctx.lineTo(cx - w * 0.5, bodyTop + 1);
+    ctx.quadraticCurveTo(cx - w * 0.52, noseTop + nose * 0.55, cx, noseTop);
+    ctx.closePath();
+    ctx.fill();
+
+    /* 色带 */
+    ctx.fillStyle = g ? '#9c9c9c' : '#c0392b';
+    ctx.fillRect(left, bodyTop + h * 0.30, w, h * 0.06);
+    ctx.fillRect(left, bodyTop + h * 0.78, w, h * 0.05);
+
+    /* 舷窗 */
+    if (!L.compact) {
+      ctx.beginPath();
+      ctx.arc(cx, bodyTop + h * 0.20, w * 0.20, 0, Math.PI * 2);
+      ctx.fillStyle = g ? '#e8e8e8' : '#bfe9ff';
+      ctx.fill();
+      ctx.strokeStyle = g ? '#555' : '#5d6d75';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+
+    /* 喷口 */
+    ctx.fillStyle = g ? '#555' : '#4a545b';
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.34, baseY);
+    ctx.lineTo(cx + w * 0.34, baseY);
+    ctx.lineTo(cx + w * 0.46, baseY + w * 0.22);
+    ctx.lineTo(cx - w * 0.46, baseY + w * 0.22);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawFlame(L, baseY, g) {
+    var w = L.bodyW;
+    var power = Math.max(0.35, Math.min(1.6, thrust() / Math.max(0.2, weight())));
+    var flick = 0.82 + Math.sin(Date.now() / 55) * 0.18;
+    var fh = Math.max(14, w * 4.2 * power * flick);
+    var fw = w * 0.42;
+    var y0 = baseY + w * 0.22;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    var fg = ctx.createLinearGradient(0, y0, 0, y0 + fh);
+    if (g) {
+      fg.addColorStop(0, 'rgba(255,255,255,0.95)');
+      fg.addColorStop(0.5, 'rgba(220,220,220,0.6)');
+      fg.addColorStop(1, 'rgba(180,180,180,0)');
+    } else {
+      fg.addColorStop(0, 'rgba(255,255,235,0.98)');
+      fg.addColorStop(0.30, 'rgba(255,210,90,0.90)');
+      fg.addColorStop(0.62, 'rgba(255,120,30,0.65)');
+      fg.addColorStop(1, 'rgba(220,50,10,0)');
+    }
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.moveTo(L.cx - fw, y0);
+    ctx.quadraticCurveTo(L.cx - fw * 0.55, y0 + fh * 0.6, L.cx, y0 + fh);
+    ctx.quadraticCurveTo(L.cx + fw * 0.55, y0 + fh * 0.6, L.cx + fw, y0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function updateSmoke(L, baseY, g) {
+    if (!ignited || fuel <= 0) return;
+    if (Math.random() > 0.55) return;
+    smoke.push({
+      x: L.cx + (Math.random() - 0.5) * L.bodyW * 1.2,
+      y: baseY + L.bodyW * 0.3,
+      r: 2 + Math.random() * 4,
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: 0.4 + Math.random() * 1.2,
+      life: 0.9
+    });
+    if (smoke.length > 70) smoke.shift();
+  }
+
+  function drawSmoke(g) {
+    for (var i = 0; i < smoke.length; i++) {
+      var s = smoke[i];
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, s.life) * 0.45;
+      ctx.fillStyle = g ? '#9a9a9a' : '#cfd6db';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      s.x += s.vx;
+      s.y -= s.vy * 0.6;
+      s.r += 0.28;
+      s.life -= 0.011;
+    }
+    for (var j = smoke.length - 1; j >= 0; j--) {
+      if (smoke[j].life <= 0) smoke.splice(j, 1);
+    }
+  }
+
+  /* ===== 读数 ===== */
+  function updateReadout() {
+    var st = stateCode();
+    var g0 = gray();
+    var label, color;
+    if (st === 0) { label = fuel <= 0 ? '燃料耗尽' : '未点火'; color = '#95a5a6'; }
+    else if (st === 1) { label = '加速上升'; color = g0 ? '#444444' : '#27ae60'; }
+    else if (st === 2) { label = '悬停 / 匀速'; color = g0 ? '#666666' : '#3498db'; }
+    else { label = '推力不足'; color = g0 ? '#222222' : '#e74c3c'; }
+    var okc = g0 ? '#333333' : '#27ae60';
+    var ok = function (t) { return '<br><span style="color:' + okc + ';font-weight:700">' + t + '</span>'; };
+    var fT = thrust(), fG = weight(), a = accel();
+
+    var html = '';
+    if (ignited && fuel > 0) {
+      html += 'F推 = ṁ × v = ' + mDot.toFixed(1) + ' × ' + vGas.toFixed(0) + ' = <b>' + fT.toFixed(2) + '</b> kN<br>';
+    } else {
+      html += 'F推 = <b>0</b> kN（' + (fuel <= 0 ? '燃料耗尽' : '未点火') + '）<br>';
+    }
+    html += '总质量 m = ' + mass().toFixed(2) + ' kg　G = <b>' + fG.toFixed(2) + '</b> kN<br>';
+    html += '合力 = <b>' + netForce().toFixed(2) + '</b> kN　a = <b>' + a.toFixed(1) + '</b> m/s²<br>';
+    html += '状态：<span class="badge" style="background:' + color + '">' + label + '</span><br>';
+    html += '高度 <b>' + height.toFixed(0) + '</b> m　速度 <b>' + vSpeed.toFixed(1) + '</b> m/s<br>';
+    html += '剩余燃料 <b>' + fuel.toFixed(2) + '</b> kg / ' + M_FUEL0.toFixed(1) + ' kg';
+    if (st === 1) html += ok('向后喷气 → 气体反作用力推火箭向上');
+    if (st === 0 && fuel > 0 && !ignited) html += ok('点击“点火升空”开始');
+    if (st === 3) html += ok('推力小于重力，火箭离不开地面');
+    if (st === 0 && fuel <= 0) html += ok('燃料用完，推力消失，只受重力');
+    if (st === 2) html += ok('F推 = G，合力为零');
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    if (c === lastState) return;
+    lastState = c;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+
+  /* ===== 交互 ===== */
+  function syncUI() {
+    document.getElementById('vgasRange').value = vGas;
+    document.getElementById('vgasVal').textContent = vGas.toFixed(0);
+    document.getElementById('mdotRange').value = mDot;
+    document.getElementById('mdotVal').textContent = mDot.toFixed(1);
+  }
+
+  document.getElementById('vgasRange').addEventListener('input', function (e) {
+    vGas = parseFloat(e.target.value);
+    document.getElementById('vgasVal').textContent = vGas.toFixed(0);
+    draw();
+  });
+  document.getElementById('mdotRange').addEventListener('input', function (e) {
+    mDot = parseFloat(e.target.value);
+    document.getElementById('mdotVal').textContent = mDot.toFixed(1);
+    draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function (e) { showForce = e.target.checked; draw(); });
+  document.getElementById('showSmoke').addEventListener('change', function (e) { showSmoke = e.target.checked; draw(); });
+  document.getElementById('showGauge').addEventListener('change', function (e) { showGauge = e.target.checked; draw(); });
+
+  document.getElementById('igniteBtn').addEventListener('click', function () {
+    if (fuel <= 0) { fuel = M_FUEL0; height = 0; vSpeed = 0; smoke = []; }
+    ignited = true;
+  });
+  document.getElementById('cutBtn').addEventListener('click', function () { ignited = false; });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    vGas = 420; mDot = 1.0; fuel = M_FUEL0;
+    height = 0; vSpeed = 0; ignited = false; smoke = [];
+    showForce = true; showSmoke = true; showGauge = true;
+    document.getElementById('showForce').checked = true;
+    document.getElementById('showSmoke').checked = true;
+    document.getElementById('showGauge').checked = true;
+    syncUI(); draw();
+  });
+
+  window.addEventListener('themechange', function () { draw(); });
+  window.addEventListener('resize', function () { fit(); draw(); });
+
+  var lastFrame = 0;
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);
+    lastFrame = ts;
+    draw(dt);
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  syncUI();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
