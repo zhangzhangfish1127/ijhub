@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>阿基米德原理 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side select {
+    width: 100%; padding: 6px 8px; margin-top: 4px; font-size: 13px;
+    border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #2c3e50;
+  }
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table td:first-child { width: 34px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .readout .hl { color: #e74c3c; font-weight: 700; }
+  .readout .ok { color: #27ae60; font-weight: 700; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>阿基米德原理</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>条件</th><th>现象</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>部分浸入</td><td>V排 &lt; V物，测力计示数变小</td></tr>
+      <tr data-case="2"><td>2</td><td>完全浸没后继续下沉</td><td>V排 = V物，F浮 不再变化</td></tr>
+      <tr data-case="3"><td>3</td><td>换密度更大的液体</td><td>同一 V排，F浮 变大</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>物块体积 V = <span class="val" id="vVal">120</span> cm³
+    <input id="vRange" type="range" min="40" max="320" step="10" value="120">
+  </label>
+
+  <label>浸入深度 d = <span class="val" id="dVal">3.0</span> cm
+    <input id="dRange" type="range" min="0" max="9" step="0.2" value="3">
+  </label>
+
+  <label>液体种类
+    <select id="liqSel">
+      <option value="water" selected>水（1.00 g/cm³）</option>
+      <option value="salt">盐水（1.10 g/cm³）</option>
+      <option value="alcohol">酒精（0.80 g/cm³）</option>
+    </select>
+  </label>
+
+  <div class="row"><input type="checkbox" id="showScale" checked><label for="showScale" style="margin:0">显示液体密度 / 体积标注</label></div>
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce" style="margin:0">显示受力分析箭头</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">演示</p>
+  <button id="playBtn">▶ 缓慢下放</button>
+  <button class="secondary" id="resetBtn">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgBlock">物块</span>
+      <span id="lgWater">液体</span>
+      <span id="lgFb">浮力 F浮</span>
+    </div>
+    <div class="hint">拖动悬挂的物块上下移动，观察测力计读数与溢出的水</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var LIQ = {
+    water:   { name: '水',   rho: 1.00, top: '#8fd0f2', bot: '#2f86c8' },
+    salt:    { name: '盐水', rho: 1.10, top: '#7fc5e8', bot: '#2670a8' },
+    alcohol: { name: '酒精', rho: 0.80, top: '#b9d7ea', bot: '#6f93b5' }
+  };
+
+  var RHO_OBJ = 2.7;        // 铝块 g/cm³
+  var G_ACC = 9.8;
+
+  var V = 120;              // cm³
+  var d = 3.0;              // 浸入深度 cm
+  var liqKey = 'water';
+  var showScale = true;
+  var showForce = true;
+  var lastCase = '1';
+  var playing = false;
+  var playingDir = 1;
+  var rafId = null;
+  var lastT = 0;
+  var drag = false;
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  /* ===== 物理量 ===== */
+  function sideCm() { return Math.cbrt(V); }                 // 边长 cm
+  function areaCm2() { var a = sideCm(); return a * a; }
+  function gWeight() { return RHO_OBJ * V * G_ACC / 1000; }   // N
+  function vDisplaced() {
+    var a = sideCm();
+    if (!(a > 0)) return 0;
+    return areaCm2() * Math.min(d, a);
+  }
+  function buoyancy() {
+    var rho = LIQ[liqKey].rho;
+    return rho * vDisplaced() * G_ACC / 1000;                 // ρ(g/cm³)×cc×g/1000 = N
+  }
+  function tension() { return Math.max(0, gWeight() - buoyancy()); }
+
+  /* ===== 布局 ===== */
+  function layout() {
+    var scale = Math.min(22, H * 0.026);     // px per cm
+    var tank = {
+      x: W * 0.16, y: H * 0.44, w: W * 0.40, h: H * 0.46
+    };
+    tank.surfaceY = tank.y + 22;
+    tank.bottomY = tank.y + tank.h;
+    var compact = W < 520;
+    var cyl = {
+      x: compact ? W * 0.72 : W * 0.71,
+      y: tank.surfaceY + (compact ? 26 : 42),
+      w: compact ? W * 0.14 : W * 0.115,
+      h: 0
+    };
+    cyl.h = tank.bottomY - cyl.y - 4;
+    cyl.bottomY = cyl.y + cyl.h;
+    var beam = { x: W * 0.10, y: H * 0.10, w: W * 0.44, h: H * 0.016 };
+    return { tank: tank, cyl: cyl, beam: beam, scale: scale };
+  }
+
+  /* ===== 小工具 ===== */
+  function rr(x, y, w, hh, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + hh - r);
+    ctx.quadraticCurveTo(x + w, y + hh, x + w - r, y + hh);
+    ctx.lineTo(x + r, y + hh);
+    ctx.quadraticCurveTo(x, y + hh, x, y + hh - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 8;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 4; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.4), y2 - head * Math.sin(ang - 0.4));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.4), y2 - head * Math.sin(ang + 0.4));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw() {
+    var L = layout();
+    var tank = L.tank, cyl = L.cyl, beam = L.beam, sc = L.scale;
+    var liq = LIQ[liqKey];
+    var g = gray();
+    var TH = App.getTheme();
+
+    var cWaterTop = g ? '#9d9d9d' : liq.top;
+    var cWaterBot = g ? '#6b6b6b' : liq.bot;
+    var cGlass = g ? '#bbbbbb' : '#c7d6e2';
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#666666' : '#7f8c8d';
+    var cMetal = g ? '#777777' : '#5d6d7e';
+    var cFb = g ? '#ffffff' : TH.ray1;
+    var cG = g ? '#ffffff' : TH.ray2;
+    var cBlock = g ? '#9a9a9a' : '#b8c4cc';
+
+    ctx.clearRect(0, 0, W, H);
+
+    /* --- 铁架台 --- */
+    ctx.save();
+    ctx.fillStyle = cMetal;
+    ctx.fillRect(W * 0.075, H * 0.10, W * 0.018, H * 0.80);
+    ctx.fillRect(W * 0.045, H * 0.895, W * 0.11, H * 0.014);
+    ctx.fillRect(beam.x, beam.y, beam.w, beam.h);
+    ctx.restore();
+
+    var compact = W < 520;
+
+    /* --- 物块尺寸 --- */
+    var a = sideCm();
+    var sizePx = a * sc;
+
+    /* --- 物块纵向位置：由浸入深度反推 --- */
+    // 物块底面 = 液面 + (d - a) 时全浸……
+    // 约定：d 为“物块底面没入液面的深度”，d>a 时底面沉到更深
+    var blockBottomY = tank.surfaceY + d * sc;
+    var blockTopY = blockBottomY - sizePx;
+    var blockX = tank.x + tank.w * 0.42;
+    var blockCX = blockX + sizePx / 2;
+
+    /* --- 弹簧测力计 --- */
+    var meterX = blockCX;
+    var meterTop = beam.y + beam.h;
+    var springLen = 42 + Math.min(38, tension() * 7);
+    drawSpring(meterX, meterTop, meterTop + springLen, cMetal, g);
+
+    // 挂钩
+    ctx.save();
+    ctx.strokeStyle = cMetal;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(meterX, meterTop + springLen);
+    ctx.lineTo(meterX, blockTopY);
+    ctx.stroke();
+    ctx.restore();
+
+    // 测力计外壳与读数
+    ctx.save();
+    ctx.fillStyle = g ? '#1a1a1a' : '#ffffff';
+    ctx.strokeStyle = cMetal;
+    ctx.lineWidth = 2;
+    if (compact) {
+      rr(W - 78, H * 0.03, 64, 22, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      text(tension().toFixed(2) + ' N', W - 46, H * 0.03 + 11, g ? '#fff' : '#e74c3c', 12.5, 'center', '700');
+    } else {
+      rr(meterX - 34, meterTop + springLen + 2, 68, 30, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      text(tension().toFixed(2) + ' N', meterX, meterTop + springLen + 17, g ? '#fff' : '#e74c3c', 15, 'center', '700');
+    }
+
+    /* --- 溢水杯 --- */
+    ctx.save();
+    ctx.fillStyle = g ? 'rgba(0,0,0,0.04)' : 'rgba(236,244,250,0.8)';
+    rr(tank.x, tank.y, tank.w, tank.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = cGlass;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    // 液体（从溢流口高度往下）
+    ctx.save();
+    rr(tank.x + 6, tank.surfaceY, tank.w - 12, tank.bottomY - tank.surfaceY - 4, 4);
+    ctx.clip();
+    var grd = ctx.createLinearGradient(0, tank.surfaceY, 0, tank.bottomY);
+    grd.addColorStop(0, cWaterTop);
+    grd.addColorStop(1, cWaterBot);
+    ctx.fillStyle = grd;
+    ctx.fillRect(tank.x, tank.surfaceY - 2, tank.w, tank.h);
+    ctx.restore();
+
+    // 液面
+    ctx.save();
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(tank.x + 6, tank.surfaceY);
+    ctx.lineTo(tank.x + tank.w - 6, tank.surfaceY);
+    ctx.stroke();
+    ctx.restore();
+
+    // 溢流口
+    var spillX = tank.x + tank.w;
+    ctx.save();
+    ctx.strokeStyle = cGlass;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(spillX - 4, tank.surfaceY + 2);
+    ctx.lineTo(spillX + 26, tank.surfaceY + 2);
+    ctx.stroke();
+    ctx.restore();
+
+    /* --- 物块（立方体三面） --- */
+    drawBlock(blockX, blockTopY, sizePx, tank.surfaceY, cBlock, cInk, g);
+
+    /* --- 物块出水部分/水下部分分界 --- */
+    if (d > 0 && blockTopY < tank.surfaceY) {
+      var wl = tank.surfaceY;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(blockX, wl, sizePx, blockBottomY - wl);
+      ctx.clip();
+      ctx.fillStyle = g ? 'rgba(255,255,255,0.10)' : 'rgba(41,128,185,0.22)';
+      ctx.fillRect(blockX, wl, sizePx, blockBottomY - wl);
+      ctx.restore();
+    }
+
+    /* --- 溢流水流 → 量筒 --- */
+    if (vDisplaced() > 0.5 && d > 0) {
+      drawStream(tank, cyl, cWaterTop, sc);
+    }
+
+    /* --- 量筒 --- */
+    drawCylinder(cyl, cGlass, g, cInk, cMuted, cWaterTop, cWaterBot);
+
+    /* --- 受力箭头 --- */
+    if (showForce) {
+      var cy = (blockTopY + blockBottomY) / 2;
+      var fLen = 24 + Math.min(40, buoyancy() * 20);
+      var fx = blockX + sizePx + 18;
+      arrow(fx, cy + 12, fx, cy + 12 - fLen, cFb, 2.6, g);
+      text('F浮', fx + 7, cy + 12 - fLen, cFb, 11, 'left', '700');
+
+      var gLen = 24 + Math.min(40, gWeight() * 12);
+      var gx = blockX - 16;
+      arrow(gx, cy - 6, gx, cy - 6 + gLen, cG, 2.6, g);
+      text('G', gx - 7, cy - 6 + gLen, cG, 11, 'right', '700');
+    }
+
+    /* --- 标注 --- */
+    if (showScale) {
+      var vd = vDisplaced();
+      if (compact) {
+        text('V = ' + V + ' cm³　ρ物 = ' + RHO_OBJ, W * 0.04, H * 0.05, cInk, 10.5, 'left', '600');
+        text('ρ液 = ' + liq.rho.toFixed(2), tank.x, Math.min(H - 8, tank.bottomY + 14), cMuted, 10, 'left');
+        text('V排 ' + vd.toFixed(0) + ' cm³', cyl.x - 4, cyl.y - 8, cInk, 10, 'left', '600');
+      } else {
+        text('物块 V = ' + V + ' cm³（边长 ' + a.toFixed(1) + ' cm）', W * 0.04, H * 0.022, cInk, 12.5, 'left', '600');
+        text('ρ物 = ' + RHO_OBJ + ' g/cm³', W * 0.04, H * 0.022 + 18, cMuted, 12, 'left');
+        text('ρ液 = ' + liq.rho.toFixed(2) + ' g/cm³', tank.x, tank.bottomY + 18, cMuted, 12, 'left');
+        text('V排 = ' + vd.toFixed(1) + ' cm³', cyl.x, cyl.y - 34, cInk, 12.5, 'left', '600');
+        text('量筒（接溢出的液体）', cyl.x, cyl.y - 16, cMuted, 11.5, 'left');
+      }
+    }
+
+    document.getElementById('lgBlock').style.setProperty('--c', g ? '#9a9a9a' : '#8395a7');
+    document.getElementById('lgWater').style.setProperty('--c', cWaterBot);
+    document.getElementById('lgFb').style.setProperty('--c', g ? '#888888' : cFb);
+
+    updateReadout(a);
+    highlight(lastCase);
+  }
+
+  function drawSpring(x, y1, y2, color, g) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.8;
+    var n = 7;
+    var step = (y2 - y1) / n;
+    ctx.beginPath();
+    ctx.moveTo(x, y1);
+    for (var i = 0; i < n; i++) {
+      var yy = y1 + step * (i + 0.5);
+      ctx.lineTo(x + (i % 2 === 0 ? 7 : -7), yy);
+      ctx.lineTo(x, yy + step / 2);
+    }
+    ctx.stroke();
+    // 上端固定块
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 12, y1 - 6, 24, 6);
+    ctx.restore();
+  }
+
+  function drawBlock(x, y, size, surfY, cBlock, cInk, g) {
+    var depthOff = size * 0.18;
+    ctx.save();
+    // 正面
+    var grd = ctx.createLinearGradient(x, y, x + size, y + size);
+    grd.addColorStop(0, g ? '#b0b0b0' : '#c3d2dc');
+    grd.addColorStop(1, g ? '#7d7d7d' : '#7f929f');
+    ctx.fillStyle = grd;
+    ctx.fillRect(x, y, size, size);
+    ctx.strokeStyle = cInk;
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(x, y, size, size);
+
+    // 顶面（平行四边形）
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + depthOff, y - depthOff * 0.62);
+    ctx.lineTo(x + size + depthOff, y - depthOff * 0.62);
+    ctx.lineTo(x + size, y);
+    ctx.closePath();
+    ctx.fillStyle = g ? '#d0d0d0' : '#e2ebf0';
+    ctx.fill();
+    ctx.stroke();
+
+    // 侧面
+    ctx.beginPath();
+    ctx.moveTo(x + size, y);
+    ctx.lineTo(x + size + depthOff, y - depthOff * 0.62);
+    ctx.lineTo(x + size + depthOff, y + size - depthOff * 0.62);
+    ctx.lineTo(x + size, y + size);
+    ctx.closePath();
+    ctx.fillStyle = g ? '#9c9c9c' : '#8fa3b0';
+    ctx.fill();
+    ctx.stroke();
+
+    // 金属高光
+    ctx.save();
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(x + size * 0.16, y + size * 0.9);
+    ctx.lineTo(x + size * 0.30, y + size * 0.08);
+    ctx.lineTo(x + size * 0.42, y + size * 0.08);
+    ctx.lineTo(x + size * 0.28, y + size * 0.9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function drawCylinder(cyl, cGlass, g, cInk, cMuted, cTop, cBot) {
+    var vMax = 340;
+    var level = Math.min(1, vDisplaced() / vMax);
+    ctx.save();
+    // 玻璃
+    ctx.fillStyle = g ? 'rgba(0,0,0,0.04)' : 'rgba(240,246,251,0.85)';
+    rr(cyl.x, cyl.y, cyl.w, cyl.h, 6);
+    ctx.fill();
+    ctx.strokeStyle = cGlass;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+
+    // 水
+    var wh = (cyl.h - 12) * level;
+    if (wh > 1) {
+      var wy = cyl.bottomY - 6 - wh;
+      ctx.save();
+      rr(cyl.x + 4, wy, cyl.w - 8, wh, 3);
+      ctx.clip();
+      var grd = ctx.createLinearGradient(0, wy, 0, cyl.bottomY);
+      grd.addColorStop(0, cTop);
+      grd.addColorStop(1, cBot);
+      ctx.fillStyle = grd;
+      ctx.fillRect(cyl.x, wy, cyl.w, wh);
+      ctx.restore();
+
+      ctx.strokeStyle = g ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(cyl.x + 4, wy);
+      ctx.lineTo(cyl.x + cyl.w - 4, wy);
+      ctx.stroke();
+    }
+
+    // 刻度
+    ctx.strokeStyle = cMuted;
+    ctx.lineWidth = 1;
+    var ticks = (cyl.w < 50) ? 3 : 5;
+    for (var i = 1; i <= ticks; i++) {
+      var yy = cyl.bottomY - 6 - (cyl.h - 12) * i / ticks;
+      ctx.beginPath();
+      ctx.moveTo(cyl.x + 4, yy);
+      ctx.lineTo(cyl.x + 12, yy);
+      ctx.stroke();
+      if (cyl.w >= 50) text((vMax * i / ticks).toFixed(0), cyl.x + 14, yy, cMuted, 9.5, 'left');
+    }
+    ctx.restore();
+  }
+
+  function drawStream(tank, cyl, cTop, sc) {
+    var sx = tank.x + tank.w + 22, sy = tank.surfaceY + 2;
+    var ex = cyl.x + cyl.w / 2, ey = cyl.y + 4;
+    ctx.save();
+    ctx.strokeStyle = cTop;
+    ctx.lineWidth = Math.max(2, Math.min(4, vDisplaced() / 40));
+    ctx.globalAlpha = 0.85;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.bezierCurveTo(sx + 26, sy + 6, ex - 24, ey - 12, ex, ey);
+    ctx.stroke();
+    ctx.restore();
+
+    // 落水涟漪
+    var tt = (Date.now() / 400) % 1;
+    ctx.save();
+    ctx.strokeStyle = cTop;
+    ctx.globalAlpha = 0.5 * (1 - tt);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(ex, ey + 2, 4 + tt * 12, 1.6 + tt * 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ===== 读数与表格 ===== */
+  function updateReadout(a) {
+    var G = gWeight();
+    var Fb = buoyancy();
+    var Ft = tension();
+    var vd = vDisplaced();
+    var full = vd >= V - 0.01;
+    var html = '';
+    html += '物重 G = ρ物Vg = <b>' + G.toFixed(2) + '</b> N　（ρ物 = ' + RHO_OBJ + ' g/cm³）<br>';
+    html += 'F浮 = ρ液 g V排 = <b>' + Fb.toFixed(2) + '</b> N<br>';
+    html += '测力计读数 F拉 = G − F浮 = <span class="hl">' + Ft.toFixed(2) + '</span> N<br>';
+    html += 'V排 = <b>' + vd.toFixed(1) + '</b> cm³' + (full ? '（已全部浸没）' : '（部分浸入）');
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+  function setCase(c) { lastCase = c; highlight(c); }
+
+  /* ===== 交互 ===== */
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function pos(e) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  function blockRect() {
+    var L = layout(), tank = L.tank, sc = L.scale;
+    var a = sideCm(), sizePx = a * sc;
+    var bottomY = tank.surfaceY + d * sc;
+    var topY = bottomY - sizePx;
+    var x = tank.x + tank.w * 0.42;
+    return { x: x, y: topY, w: sizePx, h: sizePx, bottomY: bottomY };
+  }
+  function hitBlock(p) {
+    var b = blockRect();
+    return p.x > b.x - 12 && p.x < b.x + b.w + 20 && p.y > b.y - 14 && p.y < b.y + b.h + 14;
+  }
+
+  var dragOffset = 0;
+
+  canvas.addEventListener('pointerdown', function(e) {
+    var p = pos(e);
+    if (!hitBlock(p)) return;
+    drag = true;
+    dragOffset = blockRect().bottomY - p.y;
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  canvas.addEventListener('pointermove', function(e) {
+    var p = pos(e);
+    if (!drag) {
+      canvas.style.cursor = hitBlock(p) ? 'grab' : 'default';
+      return;
+    }
+    var L = layout(), tank = L.tank, sc = L.scale;
+    var nb = p.y + dragOffset;                       // 物块底面目标位置
+    var maxD = Math.max(0, (tank.bottomY - 10 - tank.surfaceY) / sc);
+    d = clamp((nb - tank.surfaceY) / sc, 0, maxD);
+    document.getElementById('dRange').value = Math.min(9, d).toFixed(1);
+    document.getElementById('dVal').textContent = Math.min(9, d).toFixed(1);
+    setCase(d >= sideCm() ? '2' : '1');
+    draw();
+  });
+
+  function endDrag(e) {
+    if (!drag) return;
+    drag = false;
+    try { if (canvas.releasePointerCapture) canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', function(e) { if (drag) endDrag(e); });
+
+  document.getElementById('vRange').addEventListener('input', function(e) {
+    V = parseFloat(e.target.value);
+    document.getElementById('vVal').textContent = V;
+    setCase(vDisplaced() >= V - 0.01 ? '2' : '1');
+    draw();
+  });
+
+  document.getElementById('dRange').addEventListener('input', function(e) {
+    d = parseFloat(e.target.value);
+    document.getElementById('dVal').textContent = d.toFixed(1);
+    setCase(d >= sideCm() ? '2' : '1');
+    draw();
+  });
+
+  document.getElementById('liqSel').addEventListener('change', function(e) {
+    liqKey = e.target.value;
+    setCase('3');
+    draw();
+  });
+
+  document.getElementById('showScale').addEventListener('change', function(e) {
+    showScale = e.target.checked; draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function(e) {
+    showForce = e.target.checked; draw();
+  });
+
+  /* ===== 播放 ===== */
+  var playBtn = document.getElementById('playBtn');
+  function stopPlay() {
+    playing = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    playBtn.textContent = '▶ 缓慢下放';
+  }
+  function tick(ts) {
+    if (!playing) return;
+    if (!lastT) lastT = ts;
+    var dt = Math.min(0.05, (ts - lastT) / 1000);
+    lastT = ts;
+    d += playingDir * 2.2 * dt;
+    var maxD = Math.max(9, sideCm() + 1.5);
+    if (d >= maxD) { d = maxD; playingDir = -1; }
+    if (d <= 0) { d = 0; playingDir = 1; }
+    document.getElementById('dRange').value = Math.min(9, d);
+    document.getElementById('dVal').textContent = Math.min(9, d).toFixed(1);
+    setCase(d >= sideCm() ? '2' : '1');
+    draw();
+    rafId = requestAnimationFrame(tick);
+  }
+  playBtn.addEventListener('click', function() {
+    if (playing) { stopPlay(); return; }
+    playing = true; playingDir = 1; lastT = 0;
+    playBtn.textContent = '⏸ 暂停';
+    rafId = requestAnimationFrame(tick);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    stopPlay();
+    V = 120; d = 3; liqKey = 'water'; showScale = true; showForce = true;
+    document.getElementById('vRange').value = 120;
+    document.getElementById('vVal').textContent = '120';
+    document.getElementById('dRange').value = 3;
+    document.getElementById('dVal').textContent = '3.0';
+    document.getElementById('liqSel').value = 'water';
+    document.getElementById('showScale').checked = true;
+    document.getElementById('showForce').checked = true;
+    setCase('1');
+    draw();
+  });
+
+  window.addEventListener('themechange', draw);
+  window.addEventListener('resize', function() { fit(); draw(); });
+
+  fit();
+  draw();
+  setInterval(function() { if (!drag && !document.hidden) draw(); }, 130);
+})();
+</script>
+</body>
+</html>
