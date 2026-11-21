@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>热气球升空的原理 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table th { white-space: nowrap; }
+  .case-table td:first-child { width: 30px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .readout .ok { color: #27ae60; font-weight: 700; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+  .btn-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>热气球升空的原理</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>条件</th><th>现象</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>F浮 &gt; G</td><td>加热球内气体，上升</td></tr>
+      <tr data-case="2"><td>2</td><td>F浮 = G</td><td>升力与重力平衡，悬停</td></tr>
+      <tr data-case="3"><td>3</td><td>F浮 &lt; G</td><td>冷却球内气体，下降</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>球内空气温度 T = <span class="val" id="tempVal">100</span> ℃
+    <input id="tempRange" type="range" min="20" max="120" step="1" value="100">
+  </label>
+
+  <label>球囊体积 V = <span class="val" id="volVal">2200</span> m³
+    <input id="volRange" type="range" min="1200" max="3000" step="100" value="2200">
+  </label>
+
+  <label>载重（吊篮 + 乘客）= <span class="val" id="loadVal">300</span> kg
+    <input id="loadRange" type="range" min="150" max="650" step="10" value="300">
+  </label>
+
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce">显示受力箭头</label></div>
+  <div class="row"><input type="checkbox" id="showGauge" checked><label for="showGauge">显示高度标尺</label></div>
+  <div class="row"><input type="checkbox" id="showCloud" checked><label for="showCloud">显示云层</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">操作</p>
+  <button id="burnBtn">点燃燃烧器（升温）</button>
+  <button id="coolBtn" class="secondary">打开排气口（降温）</button>
+  <button id="resetBtn" class="secondary">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgBalloon">球囊</span>
+      <span id="lgBasket">吊篮</span>
+      <span id="lgFb">浮力 F浮</span>
+      <span id="lgG">总重 G</span>
+    </div>
+    <div class="hint">拖动温度滑块或点燃燃烧器，观察气球的升降与自动平衡高度</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function () {
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var G_ACC = 9.8;
+  var T_OUT = 20;                 // ℃ 外界温度
+  var RHO0 = 1.29;                // kg/m³ 海平面空气密度
+  var RHO_SCALE = 1800;           // m，空气密度随高度线性衰减的尺度
+  var MAP_H = 700;                // m，画布可显示的最大高度
+  var M_SHELL = 180;              // kg 球囊 + 燃烧器
+  var M_LOAD = 300;               // kg 载重
+
+  var temp = 100;
+  var volBalloon = 2200;
+  var height = 0;                 // m
+  var vSpeed = 0;
+  var burner = 0;                 // 0 关，1 开，-1 排气
+  var lastState = 0;
+
+  var showForce = true, showGauge = true, showCloud = true;
+
+  var clouds = [
+    { h: 90, x: 0.18, s: 1.0, sp: 0.12 },
+    { h: 210, x: 0.78, s: 0.75, sp: 0.09 },
+    { h: 340, x: 0.34, s: 1.25, sp: 0.07 },
+    { h: 520, x: 0.86, s: 0.9, sp: 0.06 },
+    { h: 700, x: 0.10, s: 1.1, sp: 0.05 },
+    { h: 930, x: 0.55, s: 0.8, sp: 0.04 }
+  ];
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  function layout() {
+    var compact = W < 520;
+    var bw = Math.min(W * (compact ? 0.18 : 0.17), compact ? 76 : 158);
+    var bh = bw * 1.15;
+    var basketH = bh * 0.16;
+    var total = bh * 1.055 + basketH;
+    return {
+      groundY: H * (compact ? 0.92 : 0.90),
+      topY: H * (compact ? 0.03 : 0.06),
+      cx: compact ? W * 0.45 : W * 0.44,
+      bw: bw,
+      bh: bh,
+      basketH: basketH,
+      balloonTotal: total,
+      gaugeX: compact ? W * 0.95 : W * 0.90,
+      compact: compact
+    };
+  }
+
+  function hToY(h) {
+    var L = layout();
+    var yMax = L.groundY - 26;
+    var yMin = L.topY + L.balloonTotal;
+    var t = Math.max(0, Math.min(1, h / MAP_H));
+    return yMax - t * Math.max(20, yMax - yMin);
+  }
+
+  /* ===== 物理 ===== */
+  function rhoOut() { return RHO0 * Math.max(0.05, 1 - height / RHO_SCALE); }
+  function rhoIn() { return rhoOut() * (273 + T_OUT) / (273 + temp); }
+  function buoyancy() { return rhoOut() * G_ACC * volBalloon / 1000; }              // kN
+  function gravity() { return (rhoIn() * volBalloon + M_SHELL + M_LOAD) * G_ACC / 1000; }
+  function netLift() { return buoyancy() - gravity(); }
+
+  function stateCode() {
+    var f = buoyancy();
+    if (f <= 0.001) return 3;
+    var rel = Math.abs(netLift()) / f;
+    if (rel < 0.006) return 2;
+    return netLift() > 0 ? 1 : 3;
+  }
+
+  function targetSpeed() {
+    return Math.max(-32, Math.min(32, netLift() / 0.06));
+  }
+
+  function equilibriumHeight() {
+    // 估算净升力为 0 时的高度
+    var k = (273 + T_OUT) / (273 + temp);
+    var fix = (M_SHELL + M_LOAD);
+    var need = fix / (volBalloon * (1 - k));
+    if (need <= 0 || need > RHO0) return null;
+    return RHO_SCALE * (1 - need / RHO0);
+  }
+
+  /* ===== 工具 ===== */
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 7;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 4; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw(dt) {
+    var L = layout();
+    var g = gray();
+    var TH = App.getTheme();
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#5a5a5a' : '#7f8c8d';
+    var cFb = g ? '#1c1c1c' : TH.ray1;
+    var cG = g ? '#666666' : TH.ray2;
+
+    /* 温度调节 */
+    if (dt && burner === 1) {
+      temp += 26 * dt;
+      if (temp >= 120) { temp = 120; burner = 0; }
+      document.getElementById('tempRange').value = Math.round(temp);
+      document.getElementById('tempVal').textContent = Math.round(temp);
+    } else if (dt && burner === -1) {
+      temp -= 18 * dt;
+      if (temp <= 20) { temp = 20; burner = 0; }
+      document.getElementById('tempRange').value = Math.round(temp);
+      document.getElementById('tempVal').textContent = Math.round(temp);
+    }
+
+    /* 运动 */
+    if (dt) {
+      var vt = targetSpeed();
+      vSpeed += (vt - vSpeed) * Math.min(1, dt * 1.8);
+      height += vSpeed * dt;
+      if (height < 0) { height = 0; vSpeed = 0; }
+      if (height > MAP_H) { height = MAP_H; vSpeed = 0; }
+    }
+
+    /* 天空 */
+    ctx.clearRect(0, 0, W, H);
+    var sky = ctx.createLinearGradient(0, 0, 0, L.groundY);
+    if (g) {
+      sky.addColorStop(0, '#e6e6e6');
+      sky.addColorStop(0.6, '#cfcfcf');
+      sky.addColorStop(1, '#b0b0b0');
+    } else {
+      sky.addColorStop(0, '#2e6fa8');
+      sky.addColorStop(0.45, '#6fb2dd');
+      sky.addColorStop(1, '#c9e6f7');
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    /* 太阳 */
+    if (!g) {
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      var sg = ctx.createRadialGradient(W * 0.70, H * 0.17, 2, W * 0.70, H * 0.17, Math.min(W, H) * 0.13);
+      sg.addColorStop(0, 'rgba(255,244,200,0.95)');
+      sg.addColorStop(0.35, 'rgba(255,232,160,0.55)');
+      sg.addColorStop(1, 'rgba(255,232,160,0)');
+      ctx.fillStyle = sg;
+      ctx.beginPath();
+      ctx.arc(W * 0.70, H * 0.17, Math.min(W, H) * 0.13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    /* 云 */
+    if (showCloud) {
+      for (var i = 0; i < clouds.length; i++) {
+        var c = clouds[i];
+        var cy = hToY(c.h);
+        if (cy < -60 || cy > H + 40) continue;
+        var cx = ((c.x + (Date.now() / 1000) * c.sp * 0.004) % 1.2) * W;
+        drawCloud(cx, cy, c.s, g);
+      }
+    }
+
+    /* 地面 */
+    drawGround(L, g);
+
+    /* 高度标尺 */
+    if (showGauge) drawGauge(L, g);
+
+    /* 热气球 */
+    var by = hToY(height);
+    drawBalloon(L, by, g);
+
+    /* 受力箭头 */
+    if (showForce) {
+      var bh2 = L.bh, bw2 = L.bw;
+      var topY2 = by - L.balloonTotal;
+      var fB = buoyancy(), fG = gravity();
+      var maxLen = L.compact ? 40 : 82;
+      var lenB = 12 + Math.pow(Math.min(1, fB / 40), 0.8) * maxLen;
+      var lenG = 12 + Math.pow(Math.min(1, fG / 40), 0.8) * maxLen;
+
+      var ax = L.cx + bw2 * 0.60;
+      var ay = topY2 + bh2 * 0.26;
+      lenB = Math.min(lenB, ay - 14);
+      arrow(ax, ay, ax, ay - lenB, cFb, 2.8, g);
+      text('F浮', ax + 6, ay - lenB - 2, cFb, 11, 'left', '700');
+
+      var bx = L.cx - bw2 * 0.60;
+      var by2 = topY2 + bh2 * 0.58;
+      lenG = Math.min(lenG, L.groundY - 6 - by2);
+      arrow(bx, by2, bx, by2 + lenG, cG, 2.8, g);
+      text('G', bx - 6, by2 + lenG + 2, cG, 11, 'right', '700');
+    }
+
+    /* 顶部文字 */
+    var s = stateCode();
+    var statusTxt = s === 1 ? '上升中' : s === 2 ? '悬停' : '下降中';
+    if (L.compact) {
+      text(statusTxt + '　' + height.toFixed(0) + ' m', W * 0.03, H * 0.06, g ? '#2b2b2b' : '#ffffff', 11.5, 'left', '700');
+    } else {
+      text(statusTxt, W * 0.03, H * 0.065, g ? '#2b2b2b' : '#ffffff', 14, 'left', '700');
+      text('高度 ' + height.toFixed(0) + ' m　气温 ' + (T_OUT) + ' ℃　ρ外 ' + rhoOut().toFixed(3) + ' kg/m³',
+        W * 0.03, H * 0.105, g ? '#555555' : 'rgba(255,255,255,0.92)', 11.5, 'left');
+    }
+
+    document.getElementById('lgBalloon').style.setProperty('--c', g ? '#9a9a9a' : '#d9534f');
+    document.getElementById('lgBasket').style.setProperty('--c', g ? '#6a6a6a' : '#a9743b');
+    document.getElementById('lgFb').style.setProperty('--c', g ? '#dddddd' : cFb);
+    document.getElementById('lgG').style.setProperty('--c', g ? '#bbbbbb' : cG);
+
+    updateReadout();
+    highlight(stateCode());
+  }
+
+  function drawCloud(cx, cy, s, g) {
+    ctx.save();
+    ctx.globalAlpha = g ? 0.42 : 0.85;
+    ctx.fillStyle = g ? '#f4f4f4' : '#ffffff';
+    var r = 14 * s;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.arc(cx + r * 0.95, cy + r * 0.18, r * 0.78, 0, Math.PI * 2);
+    ctx.arc(cx - r * 0.95, cy + r * 0.22, r * 0.65, 0, Math.PI * 2);
+    ctx.arc(cx + r * 0.35, cy - r * 0.5, r * 0.62, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawGround(L, g) {
+    var gy = L.groundY;
+    ctx.save();
+    var gg = ctx.createLinearGradient(0, gy, 0, H);
+    if (g) { gg.addColorStop(0, '#b8b8b8'); gg.addColorStop(1, '#8f8f8f'); }
+    else { gg.addColorStop(0, '#8fce7a'); gg.addColorStop(1, '#4e9a4a'); }
+    ctx.fillStyle = gg;
+    ctx.fillRect(0, gy, W, H - gy);
+
+    /* 远山 */
+    ctx.fillStyle = g ? 'rgba(140,140,140,0.8)' : 'rgba(110,160,120,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(W * 0.12, gy - 34);
+    ctx.lineTo(W * 0.26, gy - 8);
+    ctx.lineTo(W * 0.40, gy - 46);
+    ctx.lineTo(W * 0.56, gy - 12);
+    ctx.lineTo(W * 0.72, gy - 38);
+    ctx.lineTo(W * 0.88, gy - 6);
+    ctx.lineTo(W, gy - 24);
+    ctx.lineTo(W, gy);
+    ctx.closePath();
+    ctx.fill();
+
+    /* 地平线 */
+    ctx.strokeStyle = g ? '#7a7a7a' : 'rgba(60,110,60,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(W, gy);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGauge(L, g) {
+    var gx = L.gaugeX;
+    var bot = hToY(0);
+    var top = hToY(MAP_H);
+    ctx.save();
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(gx, top);
+    ctx.lineTo(gx, bot);
+    ctx.stroke();
+
+    var steps = L.compact ? 2 : 7;
+    for (var i = 0; i <= steps; i++) {
+      var hv = (MAP_H / steps) * i;
+      var y = bot - (hv / MAP_H) * (bot - top);
+      ctx.beginPath();
+      ctx.moveTo(gx - 5, y);
+      ctx.lineTo(gx + 5, y);
+      ctx.stroke();
+      text(hv.toFixed(0), gx - 9, y, g ? '#2b2b2b' : '#ffffff', 10, 'right', '600');
+    }
+    text('m', gx - 9, top - 10, g ? '#2b2b2b' : '#ffffff', 10, 'right', '700');
+
+    /* 当前高度指针 */
+    var py = hToY(height);
+    ctx.fillStyle = g ? '#ffffff' : '#ffe066';
+    ctx.beginPath();
+    ctx.moveTo(gx, py);
+    ctx.lineTo(gx - 7, py - 5);
+    ctx.lineTo(gx - 7, py + 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function balloonPath(cx, top, bw, bh) {
+    ctx.beginPath();
+    ctx.moveTo(cx, top);
+    ctx.bezierCurveTo(cx + bw * 0.62, top + bh * 0.04, cx + bw * 0.56, top + bh * 0.70, cx + bw * 0.24, top + bh * 0.90);
+    ctx.lineTo(cx + bw * 0.15, top + bh * 0.985);
+    ctx.lineTo(cx - bw * 0.15, top + bh * 0.985);
+    ctx.lineTo(cx - bw * 0.24, top + bh * 0.90);
+    ctx.bezierCurveTo(cx - bw * 0.56, top + bh * 0.70, cx - bw * 0.62, top + bh * 0.04, cx, top);
+    ctx.closePath();
+  }
+
+  function drawBalloon(L, bottomY, g) {
+    var bw = L.bw;
+    var bh = L.bh;
+    var cx = L.cx;
+    var basketH = L.basketH, basketW = bw * 0.30;
+    var top = bottomY - bh * 1.055 - basketH;
+
+    ctx.save();
+
+    /* 吊篮绳索 */
+    ctx.strokeStyle = g ? '#555' : '#6b5334';
+    ctx.lineWidth = 1.2;
+    for (var i = -1; i <= 1; i += 2) {
+      ctx.beginPath();
+      ctx.moveTo(cx + i * bw * 0.15, top + bh * 0.96);
+      ctx.lineTo(cx + i * basketW * 0.42, top + bh + bh * 0.04);
+      ctx.stroke();
+    }
+
+    /* 球囊本体 */
+    balloonPath(cx, top, bw, bh);
+    ctx.fillStyle = g ? '#cfcfcf' : '#f5f0e6';
+    ctx.fill();
+
+    /* 条纹 */
+    ctx.save();
+    balloonPath(cx, top, bw, bh);
+    ctx.clip();
+    var bands = 7;
+    for (var b = 0; b < bands; b++) {
+      if (b % 2 === 0) continue;
+      var x1 = cx - bw * 0.62 + (bw * 1.24 / bands) * b;
+      var x2 = x1 + bw * 1.24 / bands;
+      var col = g ? '#9c9c9c' : '#d9534f';
+      ctx.fillStyle = col;
+      ctx.fillRect(x1, top - 4, x2 - x1, bh + 10);
+    }
+    /* 明暗 */
+    var shade = ctx.createLinearGradient(cx - bw * 0.6, top, cx + bw * 0.6, top + bh);
+    if (g) {
+      shade.addColorStop(0, 'rgba(255,255,255,0.30)');
+      shade.addColorStop(0.5, 'rgba(255,255,255,0)');
+      shade.addColorStop(1, 'rgba(0,0,0,0.20)');
+    } else {
+      shade.addColorStop(0, 'rgba(255,255,255,0.35)');
+      shade.addColorStop(0.45, 'rgba(255,255,255,0)');
+      shade.addColorStop(1, 'rgba(0,0,0,0.22)');
+    }
+    ctx.fillStyle = shade;
+    ctx.fillRect(cx - bw * 0.7, top - 4, bw * 1.4, bh + 12);
+    ctx.restore();
+
+    /* 轮廓 */
+    balloonPath(cx, top, bw, bh);
+    ctx.strokeStyle = g ? '#6a6a6a' : 'rgba(140,80,70,0.55)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    /* 底部开口 */
+    ctx.beginPath();
+    ctx.ellipse(cx, top + bh * 0.965, bw * 0.145, bh * 0.022, 0, 0, Math.PI * 2);
+    ctx.fillStyle = g ? '#4a4a4a' : '#3b2f2a';
+    ctx.fill();
+
+    /* 燃烧器与火焰 */
+    var by2 = top + bh * 1.01;
+    var flameOn = temp > 60;
+    ctx.fillStyle = g ? '#555' : '#8a8f96';
+    rr(cx - bw * 0.055, by2, bw * 0.11, bh * 0.045, 2);
+    ctx.fill();
+
+    if (flameOn) {
+      var power = Math.max(0, Math.min(1, (temp - 55) / 65));
+      var fh = bh * (0.10 + power * 0.22) * (0.85 + Math.sin(Date.now() / 90) * 0.15);
+      var fw = bw * (0.05 + power * 0.04);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      var fg = ctx.createLinearGradient(0, by2, 0, by2 - fh);
+      if (g) {
+        fg.addColorStop(0, 'rgba(255,255,255,0.95)');
+        fg.addColorStop(1, 'rgba(200,200,200,0)');
+      } else {
+        fg.addColorStop(0, 'rgba(255,240,150,0.95)');
+        fg.addColorStop(0.45, 'rgba(255,160,40,0.8)');
+        fg.addColorStop(1, 'rgba(230,60,20,0)');
+      }
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.moveTo(cx - fw, by2);
+      ctx.quadraticCurveTo(cx - fw * 0.7, by2 - fh * 0.55, cx, by2 - fh);
+      ctx.quadraticCurveTo(cx + fw * 0.7, by2 - fh * 0.55, cx + fw, by2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    /* 吊篮 */
+    var bkx = cx - basketW / 2;
+    var bky = by2 + bh * 0.045;
+    var bg = ctx.createLinearGradient(bkx, bky, bkx + basketW, bky + basketH);
+    if (g) { bg.addColorStop(0, '#b0b0b0'); bg.addColorStop(1, '#7a7a7a'); }
+    else { bg.addColorStop(0, '#c69a63'); bg.addColorStop(1, '#96703f'); }
+    rr(bkx, bky, basketW, basketH, 3);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#555' : '#6b4f2a';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    /* 竹编纹 */
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 1;
+    for (var r2 = 1; r2 < 3; r2++) {
+      ctx.beginPath();
+      ctx.moveTo(bkx + 2, bky + (basketH / 3) * r2);
+      ctx.lineTo(bkx + basketW - 2, bky + (basketH / 3) * r2);
+      ctx.stroke();
+    }
+
+    /* 人物剪影 */
+    if (!L.compact) {
+      ctx.fillStyle = g ? '#3a3a3a' : '#4a3520';
+      ctx.beginPath();
+      ctx.arc(cx, bky - basketH * 0.22, basketH * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      rr(cx - basketH * 0.18, bky - basketH * 0.10, basketH * 0.36, basketH * 0.34, basketH * 0.12);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  /* ===== 读数 ===== */
+  function updateReadout() {
+    var s = stateCode();
+    var label = s === 1 ? '上升' : s === 2 ? '悬停' : '下降';
+    var g0 = gray();
+    var color = g0 ? '#555555' : (s === 1 ? '#27ae60' : s === 2 ? '#3498db' : '#e74c3c');
+    var okc = g0 ? '#333333' : '#27ae60';
+    var ok = function (t) { return '<br><span style="color:' + okc + ';font-weight:700">' + t + '</span>'; };
+    var fB = buoyancy(), fG = gravity();
+    var eq = equilibriumHeight();
+
+    var html = '';
+    html += 'T内 = <b>' + temp.toFixed(0) + '</b> ℃　T外 = ' + T_OUT + ' ℃<br>';
+    html += 'ρ内 = <b>' + rhoIn().toFixed(3) + '</b>　ρ外 = <b>' + rhoOut().toFixed(3) + '</b> kg/m³<br>';
+    html += 'V排 = ' + volBalloon + ' m³　M总 = ' + ((rhoIn() * volBalloon + M_SHELL + M_LOAD) / 1000).toFixed(2) + ' t<br>';
+    html += 'F浮 = <b>' + fB.toFixed(1) + '</b> kN　G = <b>' + fG.toFixed(1) + '</b> kN<br>';
+    html += '净升力 = <b>' + netLift().toFixed(1) + '</b> kN　';
+    html += '<span class="badge" style="background:' + color + '">' + label + '</span><br>';
+    html += '高度 <b>' + height.toFixed(0) + '</b> m';
+    if (eq !== null && eq > 0 && eq < MAP_H) {
+      html += '　平衡高度约 <b>' + eq.toFixed(0) + '</b> m';
+    } else if (eq === null) {
+      html += '　' + ok('升力不足，气球无法离开地面');
+    }
+    if (s === 1) html += ok('球内空气受热膨胀、密度变小 → 上升');
+    if (s === 3) html += ok('球内空气冷却、密度变大 → 下降');
+    if (s === 2) html += ok('F浮 = G，气球停在当前高度');
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    if (c === lastState) return;
+    lastState = c;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+
+  /* ===== 交互 ===== */
+  function syncUI() {
+    document.getElementById('tempRange').value = Math.round(temp);
+    document.getElementById('tempVal').textContent = Math.round(temp);
+    document.getElementById('volRange').value = volBalloon;
+    document.getElementById('volVal').textContent = volBalloon;
+    document.getElementById('loadRange').value = M_LOAD;
+    document.getElementById('loadVal').textContent = M_LOAD;
+  }
+
+  document.getElementById('tempRange').addEventListener('input', function (e) {
+    temp = parseFloat(e.target.value);
+    burner = 0;
+    document.getElementById('tempVal').textContent = Math.round(temp);
+    draw();
+  });
+  document.getElementById('volRange').addEventListener('input', function (e) {
+    volBalloon = parseFloat(e.target.value);
+    document.getElementById('volVal').textContent = volBalloon;
+    draw();
+  });
+  document.getElementById('loadRange').addEventListener('input', function (e) {
+    M_LOAD = parseFloat(e.target.value);
+    document.getElementById('loadVal').textContent = M_LOAD;
+    draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function (e) { showForce = e.target.checked; draw(); });
+  document.getElementById('showGauge').addEventListener('change', function (e) { showGauge = e.target.checked; draw(); });
+  document.getElementById('showCloud').addEventListener('change', function (e) { showCloud = e.target.checked; draw(); });
+
+  document.getElementById('burnBtn').addEventListener('click', function () { burner = 1; });
+  document.getElementById('coolBtn').addEventListener('click', function () { burner = -1; });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    temp = 100; volBalloon = 2200; M_LOAD = 300;
+    height = 0; vSpeed = 0; burner = 0;
+    showForce = true; showGauge = true; showCloud = true;
+    document.getElementById('showForce').checked = true;
+    document.getElementById('showGauge').checked = true;
+    document.getElementById('showCloud').checked = true;
+    syncUI(); draw();
+  });
+
+  window.addEventListener('themechange', function () { draw(); });
+  window.addEventListener('resize', function () { fit(); draw(); });
+
+  var lastFrame = 0;
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);
+    lastFrame = ts;
+    draw(dt);
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  syncUI();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
