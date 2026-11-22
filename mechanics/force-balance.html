@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>二力平衡的条件 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table th { white-space: nowrap; }
+  .case-table td:first-child { width: 30px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+  .btn-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>二力平衡的条件</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>条件</th><th>现象</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>F1 = F2</td><td>平衡：静止或匀速</td></tr>
+      <tr data-case="2"><td>2</td><td>F1 &gt; F2</td><td>合力向右，向右加速</td></tr>
+      <tr data-case="3"><td>3</td><td>F1 &lt; F2</td><td>合力向左，向左加速</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>左侧拉力 F1 = <span class="val" id="f1Val">8.0</span> N
+    <input id="f1Range" type="range" min="0" max="25" step="0.5" value="8">
+  </label>
+
+  <label>右侧拉力 F2 = <span class="val" id="f2Val">8.0</span> N
+    <input id="f2Range" type="range" min="0" max="25" step="0.5" value="8">
+  </label>
+
+  <label>桌面摩擦因数 μ = <span class="val" id="muVal">0.20</span>
+    <input id="muRange" type="range" min="0" max="0.50" step="0.01" value="0.20">
+  </label>
+
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce">显示受力箭头</label></div>
+  <div class="row"><input type="checkbox" id="showCheck" checked><label for="showCheck">显示平衡条件判定</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">操作</p>
+  <button id="balBtn">一键平衡（F2 = F1）</button>
+  <div class="btn-row">
+    <button id="plusLeft" class="secondary" style="flex:1">左侧 +3 N</button>
+    <button id="plusRight" class="secondary" style="flex:1">右侧 +3 N</button>
+  </div>
+  <button id="resetBtn" class="secondary">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgObj">木块</span>
+      <span id="lgF1">F1 左侧拉力</span>
+      <span id="lgF2">F2 右侧拉力</span>
+      <span id="lgFf">摩擦力 f</span>
+    </div>
+    <div class="hint">拖动两个拉力滑块，观察木块何时静止、何时被拉动</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function () {
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var G_ACC = 9.8;
+  var MASS = 2;                 // kg
+  var POS_MAX = 1.5;            // m，木块可移动的半程
+
+  var F1 = 8, F2 = 8, mu = 0.20;
+  var pos = 0;                  // m，相对中心位置（右为正）
+  var vel = 0;                  // m/s
+  var lastState = 0;
+  var showForce = true, showCheck = true;
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  function layout() {
+    var compact = W < 520;
+    return {
+      tableY: H * 0.70,
+      cx: W * 0.50,
+      blockW: Math.min(W * (compact ? 0.11 : 0.13), 92),
+      blockH: Math.min(W * (compact ? 0.082 : 0.095), 66),
+      pxPerM: W * 0.14,
+      leftWall: W * 0.055,
+      rightWall: W * 0.945,
+      compact: compact
+    };
+  }
+
+  /* ===== 物理 ===== */
+  function weight() { return MASS * G_ACC; }              // N
+  function fMax() { return mu * weight(); }
+  function netPull() { return F1 - F2; }                  // N，右为正
+
+  function stateCode() {
+    var n = netPull();
+    if (Math.abs(n) <= fMax() + 0.05) return 1;
+    return n > 0 ? 2 : 3;
+  }
+
+  function frictionNow() {
+    var n = netPull();
+    if (stateCode() === 1) return -n;                     // 静摩擦与合力等大反向
+    return n > 0 ? -fMax() : fMax();                      // 滑动摩擦
+  }
+  function accel() {
+    if (stateCode() === 1) return 0;
+    return (netPull() + frictionNow()) / MASS;
+  }
+  function isEqual() { return Math.abs(F1 - F2) < 0.05; }
+
+  /* ===== 工具 ===== */
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 7;
+    if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 3) return;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw(dt) {
+    var L = layout();
+    var g = gray();
+    var TH = App.getTheme();
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#5a5a5a' : '#7f8c8d';
+    var cF1 = g ? '#1c1c1c' : TH.ray1;
+    var cF2 = g ? '#6f6f6f' : TH.ray2;
+    var cFf = g ? '#555555' : '#c0392b';
+
+    /* --- 物理步进 --- */
+    if (dt) {
+      var a = accel();
+      vel += a * dt;
+      pos += vel * dt;
+      if (pos > POS_MAX) { pos = POS_MAX; if (vel > 0) vel = 0; }
+      if (pos < -POS_MAX) { pos = -POS_MAX; if (vel < 0) vel = 0; }
+      if (stateCode() === 1 && Math.abs(vel) < 0.03) vel = 0;
+    }
+
+    ctx.clearRect(0, 0, W, H);
+
+    /* --- 背景 --- */
+    var bg = ctx.createLinearGradient(0, 0, 0, L.tableY);
+    if (g) { bg.addColorStop(0, '#f0f0f0'); bg.addColorStop(1, '#dcdcdc'); }
+    else { bg.addColorStop(0, '#f7fbfe'); bg.addColorStop(1, '#e6eff5'); }
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, L.tableY);
+
+    /* --- 桌面 --- */
+    var tg = ctx.createLinearGradient(0, L.tableY, 0, H);
+    if (g) { tg.addColorStop(0, '#b6b6b6'); tg.addColorStop(1, '#8c8c8c'); }
+    else { tg.addColorStop(0, '#c5cdd6'); tg.addColorStop(1, '#a1acb7'); }
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, L.tableY, W, H - L.tableY);
+    ctx.save();
+    ctx.strokeStyle = g ? '#7a7a7a' : 'rgba(90,105,120,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, L.tableY);
+    ctx.lineTo(W, L.tableY);
+    ctx.stroke();
+    ctx.restore();
+
+    /* --- 两侧固定支架 --- */
+    drawWall(L.leftWall, L.tableY, g);
+    drawWall(L.rightWall, L.tableY, g);
+
+    /* --- 同一直线参考线 --- */
+    ctx.save();
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = g ? 'rgba(0,0,0,0.22)' : 'rgba(90,120,145,0.38)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(W * 0.02, L.tableY - L.blockH * 0.5);
+    ctx.lineTo(W * 0.98, L.tableY - L.blockH * 0.5);
+    ctx.stroke();
+    ctx.restore();
+    if (!L.compact) {
+      text('两个力作用在同一直线上', W * 0.095, L.tableY - L.blockH * 0.5 - 14,
+        cMuted, 10.5, 'left', '600');
+    }
+
+    /* --- 木块与绳子 --- */
+    var bx = L.cx + pos * L.pxPerM;
+    var bl = bx - L.blockW / 2, br = bx + L.blockW / 2;
+    var bTop = L.tableY - L.blockH;
+
+    drawRopeAndMeter(L.leftWall, bl, L.tableY - L.blockH * 0.5, F1, cF1, g, true, L);
+    drawRopeAndMeter(L.rightWall, br, L.tableY - L.blockH * 0.5, F2, cF2, g, false, L);
+
+    drawBlock(bl, bTop, L.blockW, L.blockH, g, cInk);
+
+    /* --- 受力箭头 --- */
+    if (showForce) {
+      var midY = L.tableY - L.blockH * 0.5;
+      var scale = 5.2;
+      var len1 = Math.min(W * 0.18, F1 * scale);
+      var len2 = Math.min(W * 0.18, F2 * scale);
+      arrow(bl, midY, bl - len1, midY, cF1, 3, g);
+      if (F1 > 0.3) text(L.compact ? F1.toFixed(1) : 'F1=' + F1.toFixed(1) + 'N',
+        bl - len1 - 4, midY - (L.compact ? 11 : 14), cF1, L.compact ? 9.5 : 11, 'left', '700');
+
+      arrow(br, midY, br + len2, midY, cF2, 3, g);
+      if (F2 > 0.3) text(L.compact ? F2.toFixed(1) : 'F2=' + F2.toFixed(1) + 'N',
+        br + len2 + 4, midY - (L.compact ? 11 : 14), cF2, L.compact ? 9.5 : 11, 'right', '700');
+
+      var f = frictionNow();
+      var lenF = Math.min(W * 0.10, Math.abs(f) * scale);
+      if (Math.abs(f) > 0.3) {
+        var sgn = f > 0 ? 1 : -1;
+        arrow(bx, L.tableY + 12, bx + sgn * lenF, L.tableY + 12, cFf, 2.4, g);
+        text('f=' + Math.abs(f).toFixed(1) + 'N', bx + sgn * lenF + sgn * 4,
+          L.tableY + 26, cFf, 10.5, sgn > 0 ? 'left' : 'right', '700');
+      }
+    }
+
+    /* --- 平衡条件判定 --- */
+    if (showCheck) drawCheck(L, g, cInk, cMuted);
+
+    /* --- 顶部状态 --- */
+    var st = stateCode();
+    var statusTxt = st === 1 ? (Math.abs(vel) > 0.05 ? '合力为零·匀速运动' : '二力平衡·静止') : '合力不为零·加速中';
+    if (L.compact) {
+      text(statusTxt, W * 0.03, H * 0.07, cInk, 11.5, 'left', '700');
+    } else {
+      text(statusTxt, W * 0.03, H * 0.075, cInk, 14, 'left', '700');
+      text('木块质量 2 kg　重力 G = ' + weight().toFixed(1) + ' N　最大静摩擦 ' + fMax().toFixed(1) + ' N',
+        W * 0.03, H * 0.115, cMuted, 11.5, 'left');
+    }
+
+    document.getElementById('lgObj').style.setProperty('--c', g ? '#9a9a9a' : '#c8a06a');
+    document.getElementById('lgF1').style.setProperty('--c', g ? '#1c1c1c' : cF1);
+    document.getElementById('lgF2').style.setProperty('--c', g ? '#6f6f6f' : cF2);
+    document.getElementById('lgFf').style.setProperty('--c', g ? '#8a8a8a' : cFf);
+
+    updateReadout();
+    highlight(st);
+  }
+
+  function drawWall(x, tableY, g) {
+    ctx.save();
+    ctx.fillStyle = g ? '#8e8e8e' : '#9aa7b0';
+    rr(x - 9, tableY - H * 0.24, 18, H * 0.24, 3);
+    ctx.fill();
+    ctx.fillStyle = g ? '#6e6e6e' : '#7b8892';
+    rr(x - 16, tableY - 8, 32, 8, 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRopeAndMeter(wallX, blockEdge, y, force, color, g, isLeft, L) {
+    ctx.save();
+    /* 绳子 */
+    ctx.strokeStyle = g ? '#666' : '#8b6f47';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(wallX, y);
+    ctx.lineTo(blockEdge, y);
+    ctx.stroke();
+
+    if (L.compact) { ctx.restore(); return; }
+
+    /* 测力计外壳 */
+    var mw = 66, mh = 26;
+    var mx = isLeft ? wallX + (blockEdge - wallX) * 0.42 - mw / 2
+                    : blockEdge + (wallX - blockEdge) * 0.42 - mw / 2;
+    var my = y - mh / 2;
+    rr(mx, my, mw, mh, 4);
+    ctx.fillStyle = g ? '#eaeaea' : '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = g ? '#666' : '#8795a1';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    /* 弹簧 */
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.4;
+    var x0 = mx + 5, x1 = mx + mw * 0.52;
+    ctx.beginPath();
+    var seg = 6;
+    for (var i = 0; i <= seg; i++) {
+      var px = x0 + (x1 - x0) * (i / seg);
+      var py = y + (i % 2 === 0 ? -4 : 4);
+      if (i === 0) ctx.moveTo(px, y); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    /* 指针 */
+    ctx.fillStyle = color;
+    ctx.fillRect(mx + mw * 0.55, my + 3, 2, mh - 6);
+
+    /* 读数 */
+    text(force.toFixed(1), mx + mw - 4, y, g ? '#222' : '#2c3e50', L.compact ? 9.5 : 10.5, 'right', '700');
+    ctx.restore();
+  }
+
+  function drawBlock(x, y, w, h, g, cInk) {
+    ctx.save();
+    /* 影子 */
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h + 2, w * 0.46, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    var bg = ctx.createLinearGradient(x, y, x, y + h);
+    if (g) { bg.addColorStop(0, '#cfcfcf'); bg.addColorStop(1, '#9a9a9a'); }
+    else { bg.addColorStop(0, '#e8c48f'); bg.addColorStop(1, '#c49a5e'); }
+    rr(x, y, w, h, 4);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#5a5a5a' : '#8d6a3a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    /* 木纹 */
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.25)' : 'rgba(140,100,55,0.45)';
+    ctx.lineWidth = 1;
+    for (var i = 1; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + 4, y + (h / 3) * i);
+      ctx.lineTo(x + w - 4, y + (h / 3) * i);
+      ctx.stroke();
+    }
+    text('2 kg', x + w / 2, y + h / 2, g ? '#333' : '#6b4c23', 10.5, 'center', '700');
+    ctx.restore();
+  }
+
+  function drawCheck(L, g, cInk, cMuted) {
+    var items = [
+      { t: '同物', ok: true },
+      { t: '等大', ok: isEqual() },
+      { t: '反向', ok: true },
+      { t: '共线', ok: true }
+    ];
+    var y = H * 0.935;
+    var gap = L.compact ? W * 0.205 : 80;
+    var startX = W / 2 - gap * (items.length - 1) / 2;
+    var r = L.compact ? 6 : 7;
+    var padW = L.compact ? W * 0.94 : 356;
+    var padH = L.compact ? 32 : 38;
+
+    ctx.save();
+    rr(W / 2 - padW / 2, y - padH / 2, padW, padH, 10);
+    ctx.fillStyle = g ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.90)';
+    ctx.fill();
+    ctx.strokeStyle = g ? 'rgba(0,0,0,0.10)' : 'rgba(0,0,0,0.05)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    for (var i = 0; i < items.length; i++) {
+      var cx = startX + gap * i;
+      var ok = items[i].ok;
+      var col = g ? (ok ? '#1c1c1c' : '#a8a8a8') : (ok ? '#27ae60' : '#bdc3c7');
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx - 12, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.fill();
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      if (ok) {
+        ctx.moveTo(cx - 16, y);
+        ctx.lineTo(cx - 13, y + 3.2);
+        ctx.lineTo(cx - 8, y - 3.2);
+      } else {
+        ctx.moveTo(cx - 15, y - 2.8);
+        ctx.lineTo(cx - 9, y + 2.8);
+        ctx.moveTo(cx - 9, y - 2.8);
+        ctx.lineTo(cx - 15, y + 2.8);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      text(items[i].t, cx + 2, y, cInk, L.compact ? 10 : 11.5, 'left', '600');
+    }
+  }
+
+  /* ===== 读数 ===== */
+  function updateReadout() {
+    var st = stateCode();
+    var g0 = gray();
+    var label = st === 1 ? '平衡' : '不平衡';
+    var color = g0 ? '#444444' : (st === 1 ? '#27ae60' : '#e74c3c');
+    var okc = g0 ? '#333333' : '#27ae60';
+    var ok = function (t) { return '<br><span style="color:' + okc + ';font-weight:700">' + t + '</span>'; };
+
+    var html = '';
+    html += 'F1 = <b>' + F1.toFixed(1) + '</b> N　F2 = <b>' + F2.toFixed(1) + '</b> N<br>';
+    html += 'F1 − F2 = <b>' + netPull().toFixed(1) + '</b> N<br>';
+    html += '摩擦力 f = <b>' + Math.abs(frictionNow()).toFixed(1) + '</b> N（最大 ' + fMax().toFixed(1) + '）<br>';
+    html += '加速度 a = <b>' + accel().toFixed(2) + '</b> m/s²　速度 v = <b>' + Math.abs(vel).toFixed(2) + '</b> m/s<br>';
+    html += '状态：<span class="badge" style="background:' + color + '">' + label + '</span>';
+    if (st === 1) {
+      if (Math.abs(vel) > 0.05) html += ok('合力为零，木块做匀速直线运动');
+      else html += ok('两个力大小相等、方向相反、同一物体、同一直线');
+    } else if (st === 2) {
+      html += ok('F1 > F2，合力向右，木块向右加速');
+    } else {
+      html += ok('F1 < F2，合力向左，木块向左加速');
+    }
+    if (Math.abs(pos) >= POS_MAX - 0.01) html += ok('木块已到行程末端，先点“重置”再试');
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    if (c === lastState) return;
+    lastState = c;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+
+  /* ===== 交互 ===== */
+  function syncUI() {
+    document.getElementById('f1Range').value = F1;
+    document.getElementById('f1Val').textContent = F1.toFixed(1);
+    document.getElementById('f2Range').value = F2;
+    document.getElementById('f2Val').textContent = F2.toFixed(1);
+    document.getElementById('muRange').value = mu;
+    document.getElementById('muVal').textContent = mu.toFixed(2);
+  }
+
+  document.getElementById('f1Range').addEventListener('input', function (e) {
+    F1 = parseFloat(e.target.value);
+    document.getElementById('f1Val').textContent = F1.toFixed(1);
+    draw();
+  });
+  document.getElementById('f2Range').addEventListener('input', function (e) {
+    F2 = parseFloat(e.target.value);
+    document.getElementById('f2Val').textContent = F2.toFixed(1);
+    draw();
+  });
+  document.getElementById('muRange').addEventListener('input', function (e) {
+    mu = parseFloat(e.target.value);
+    document.getElementById('muVal').textContent = mu.toFixed(2);
+    draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function (e) { showForce = e.target.checked; draw(); });
+  document.getElementById('showCheck').addEventListener('change', function (e) { showCheck = e.target.checked; draw(); });
+
+  document.getElementById('balBtn').addEventListener('click', function () {
+    F2 = F1; syncUI(); draw();
+  });
+  document.getElementById('plusLeft').addEventListener('click', function () {
+    F1 = Math.min(25, F1 + 3); syncUI(); draw();
+  });
+  document.getElementById('plusRight').addEventListener('click', function () {
+    F2 = Math.min(25, F2 + 3); syncUI(); draw();
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    F1 = 8; F2 = 8; mu = 0.20; pos = 0; vel = 0;
+    showForce = true; showCheck = true;
+    document.getElementById('showForce').checked = true;
+    document.getElementById('showCheck').checked = true;
+    syncUI(); draw();
+  });
+
+  window.addEventListener('themechange', function () { draw(); });
+  window.addEventListener('resize', function () { fit(); draw(); });
+
+  var lastFrame = 0;
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);
+    lastFrame = ts;
+    draw(dt);
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  syncUI();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
