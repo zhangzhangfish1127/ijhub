@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>惯性：小车与木块 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table th { white-space: nowrap; }
+  .case-table td:first-child { width: 30px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+  .btn-row { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>惯性：小车与木块</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>车的运动</th><th>木块的表现</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>突然启动</td><td>保持静止，相对车向后滑</td></tr>
+      <tr data-case="2"><td>2</td><td>匀速行驶</td><td>与车同速，相对静止</td></tr>
+      <tr data-case="3"><td>3</td><td>紧急刹车</td><td>保持前进，相对车向前滑</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>木块与车厢底板摩擦因数 μ = <span class="val" id="muVal">0.20</span>
+    <input id="muRange" type="range" min="0" max="0.60" step="0.01" value="0.20">
+  </label>
+
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce">显示速度箭头</label></div>
+  <div class="row"><input type="checkbox" id="showMark" checked><label for="showMark">显示相对位移标记</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">操作</p>
+  <button id="startBtn">突然启动</button>
+  <button id="steadyBtn" class="secondary">匀速行驶</button>
+  <button id="brakeBtn" class="secondary">紧急刹车</button>
+  <button id="resetBtn" class="secondary">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgCar">小车</span>
+      <span id="lgBlk">木块</span>
+      <span id="lgVc">车速</span>
+      <span id="lgVb">木块速度</span>
+    </div>
+    <div class="hint">木块总想保持原来的运动状态——这就是惯性</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function () {
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var G_ACC = 9.8;
+  var REL_MAX = 0.55;           // m，木块相对车厢的极限位移
+  var V_CRUISE = 6;             // m/s
+
+  var mu = 0.20;
+  var vCar = 0, vBlock = 0;
+  var rel = 0;                  // m，木块相对车厢的位移（右为正）
+  var xCar = 0;                 // m，车行驶距离
+  var vTarget = 0, aCarMax = 2.5;
+  var aCar = 0;
+  var wheelAng = 0;
+  var lastState = 0;
+  var showForce = true, showMark = true;
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  function layout() {
+    var compact = W < 520;
+    var bodyW = Math.min(W * (compact ? 0.44 : 0.36), 320);
+    var wheelR = bodyW * (compact ? 0.10 : 0.105);
+    return {
+      groundY: H * 0.82,
+      cx: W * (compact ? 0.48 : 0.46),
+      bodyW: bodyW,
+      wheelR: wheelR,
+      relPx: (bodyW * 0.225) / REL_MAX,
+      bedCxRatio: 0.655,
+      compact: compact,
+      blockW: bodyW * (compact ? 0.15 : 0.14),
+      blockH: bodyW * (compact ? 0.135 : 0.13)
+    };
+  }
+
+  /* ===== 物理 ===== */
+  function update(dt) {
+    /* 车速：以给定加速度逼近目标速度 */
+    var prev = vCar;
+    var dv = vTarget - vCar;
+    var step = aCarMax * dt;
+    if (Math.abs(dv) <= step) vCar = vTarget;
+    else vCar += (dv > 0 ? 1 : -1) * step;
+    aCar = dt > 0 ? (vCar - prev) / dt : 0;
+
+    /* 木块：只受底板摩擦，速度向车速靠拢 */
+    var dvb = vCar - vBlock;
+    var maxDv = mu * G_ACC * dt;
+    if (Math.abs(dvb) <= maxDv) vBlock = vCar;
+    else vBlock += (dvb > 0 ? 1 : -1) * maxDv;
+
+    /* 相对位移 */
+    rel += (vBlock - vCar) * dt;
+    if (rel > REL_MAX) { rel = REL_MAX; vBlock = vCar; }
+    if (rel < -REL_MAX) { rel = -REL_MAX; vBlock = vCar; }
+
+    xCar += vCar * dt;
+    wheelAng += vCar * dt / 0.35;
+  }
+
+  function stateCode() {
+    if (aCar > 3) return 1;
+    if (aCar < -3) return 3;
+    // 木块停靠在挡板上：保留造成这次位移的事件
+    if (Math.abs(rel) >= REL_MAX - 0.02) return rel < 0 ? 1 : 3;
+    // 车静止且木块归位：不对应表格中的任何一种情况
+    if (Math.abs(vCar) < 0.15) return 0;
+    return 2;
+  }
+
+  /* ===== 工具 ===== */
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 7;
+    if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 3) return;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw(dt) {
+    var L = layout();
+    var g = gray();
+    var TH = App.getTheme();
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#5a5a5a' : '#8a949c';
+    var cCar = g ? '#4a4a4a' : TH.img;
+    var cBlk = g ? '#8a8a8a' : TH.ray3;
+    var cVc = g ? '#1c1c1c' : TH.ray1;
+    var cVb = g ? '#777777' : TH.ray2;
+
+    if (dt) update(dt);
+
+    ctx.clearRect(0, 0, W, H);
+
+    /* --- 天空 --- */
+    var sky = ctx.createLinearGradient(0, 0, 0, L.groundY);
+    if (g) { sky.addColorStop(0, '#efefef'); sky.addColorStop(1, '#dcdcdc'); }
+    else { sky.addColorStop(0, '#eaf5fc'); sky.addColorStop(1, '#cfe6f4'); }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, L.groundY);
+
+    /* --- 地面 --- */
+    var gg = ctx.createLinearGradient(0, L.groundY, 0, H);
+    if (g) { gg.addColorStop(0, '#b4b4b4'); gg.addColorStop(1, '#8e8e8e'); }
+    else { gg.addColorStop(0, '#b9c2a8'); gg.addColorStop(1, '#8d9877'); }
+    ctx.fillStyle = gg;
+    ctx.fillRect(0, L.groundY, W, H - L.groundY);
+
+    /* 远景与路边 */
+    drawScenery(L, g);
+
+    /* 路面条纹（随车前进向后滚动） */
+    ctx.save();
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.62)';
+    ctx.lineWidth = 3;
+    var period = 46;
+    var off = (-(xCar * 42) % period + period) % period;
+    for (var sx = off - period; sx < W + period; sx += period) {
+      ctx.beginPath();
+      ctx.moveTo(sx, L.groundY + 10);
+      ctx.lineTo(sx - 12, H - 6);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    /* --- 小车 --- */
+    drawCar(L, g, cCar, cBlk, cInk, cVb);
+
+    /* --- 速度箭头 --- */
+    var bw2 = L.bodyW;
+    var bedCx = L.cx - bw2 / 2 + bw2 * 0.655;
+    var blkX = bedCx + rel * L.relPx;
+    if (showForce) {
+      var ay = H * (L.compact ? 0.30 : 0.235);
+      var ax0 = W * 0.06;
+      var lenC = Math.min(W * 0.18, Math.abs(vCar) * 13);
+      if (Math.abs(vCar) > 0.15) {
+        arrow(ax0, ay, ax0 + lenC, ay, cVc, 2.6, g);
+        text('车速 ' + Math.abs(vCar).toFixed(1) + ' m/s', ax0, ay - 13, cVc, L.compact ? 9.5 : 11, 'left', '700');
+      } else {
+        text('车速 0', ax0, ay, cVc, L.compact ? 9.5 : 11, 'left', '600');
+      }
+
+      var blkTopY = L.groundY - L.wheelR - L.wheelR * 0.34 - L.blockH - 8;
+      var lenB = Math.min(W * 0.16, Math.abs(vBlock) * 13);
+      if (Math.abs(vBlock) > 0.15) {
+        arrow(blkX, blkTopY, blkX + lenB, blkTopY, cVb, 2.4, g);
+        text('v块 ' + Math.abs(vBlock).toFixed(1), blkX + lenB + 5, blkTopY, cVb, L.compact ? 9 : 10, 'left', '700');
+      }
+    }
+
+    /* --- 顶部状态 --- */
+    var st = stateCode();
+    var statusTxt;
+    if (aCar > 3) statusTxt = '车突然启动';
+    else if (aCar < -3) statusTxt = '车紧急刹车';
+    else if (Math.abs(vCar) > 0.15) statusTxt = '车匀速行驶';
+    else statusTxt = '车已停下';
+    if (L.compact) {
+      text(statusTxt, W * 0.03, H * 0.07, cInk, 11.5, 'left', '700');
+    } else {
+      text(statusTxt, W * 0.03, H * 0.075, cInk, 14, 'left', '700');
+      text('车速 ' + Math.abs(vCar).toFixed(1) + ' m/s　木块速度 ' + Math.abs(vBlock).toFixed(1) +
+        ' m/s　相对位移 ' + rel.toFixed(2) + ' m', W * 0.03, H * 0.115, cMuted, 11.5, 'left');
+    }
+
+    document.getElementById('lgCar').style.setProperty('--c', g ? '#4a4a4a' : cCar);
+    document.getElementById('lgBlk').style.setProperty('--c', g ? '#8a8a8a' : cBlk);
+    document.getElementById('lgVc').style.setProperty('--c', g ? '#1c1c1c' : cVc);
+    document.getElementById('lgVb').style.setProperty('--c', g ? '#777777' : cVb);
+
+    updateReadout();
+    highlight(st);
+  }
+
+  function drawScenery(L, g) {
+    var gy = L.groundY;
+
+    /* 远山 */
+    var offM = -(xCar * 7) % 320;
+    ctx.save();
+    ctx.fillStyle = g ? 'rgba(160,160,160,0.55)' : 'rgba(140,180,200,0.45)';
+    for (var i = -1; i <= Math.ceil(W / 320) + 1; i++) {
+      var bx = offM + i * 320;
+      ctx.beginPath();
+      ctx.moveTo(bx, gy);
+      ctx.lineTo(bx + 70, gy - 62);
+      ctx.lineTo(bx + 130, gy - 26);
+      ctx.lineTo(bx + 190, gy - 74);
+      ctx.lineTo(bx + 260, gy - 18);
+      ctx.lineTo(bx + 320, gy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    /* 路边树 */
+    var offT = -(xCar * 26) % 150;
+    for (var k = -1; k <= Math.ceil(W / 150) + 1; k++) {
+      var tx = offT + k * 150;
+      var th = 30;
+      ctx.save();
+      ctx.fillStyle = g ? '#7a7a7a' : '#8b6d4a';
+      ctx.fillRect(tx - 2, gy - th, 4, th);
+      ctx.beginPath();
+      ctx.arc(tx, gy - th - 8, 13, 0, Math.PI * 2);
+      ctx.arc(tx - 9, gy - th + 1, 9, 0, Math.PI * 2);
+      ctx.arc(tx + 9, gy - th + 1, 9, 0, Math.PI * 2);
+      ctx.fillStyle = g ? '#8e8e8e' : '#6aa86a';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawCar(L, g, cCar, cBlk, cInk, cVb) {
+    var bw = L.bodyW;
+    var left = L.cx - bw / 2;
+    var wheelR = L.wheelR;
+    var wy = L.groundY - wheelR;
+    var deckY = wy - wheelR * 0.34;
+
+    ctx.save();
+
+    /* 影子 */
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(L.cx, L.groundY + 3, bw * 0.50, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    /* 底盘（货台） */
+    var deckG = ctx.createLinearGradient(0, deckY - 7, 0, deckY + 7);
+    if (g) { deckG.addColorStop(0, '#8e8e8e'); deckG.addColorStop(1, '#606060'); }
+    else { deckG.addColorStop(0, '#6b7a86'); deckG.addColorStop(1, '#3d4a55'); }
+    rr(left, deckY - 7, bw, 13, 4);
+    ctx.fillStyle = deckG;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#4a4a4a' : '#2c3740';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    /* 驾驶室 */
+    var cabW = bw * 0.29;
+    var cabH = bw * 0.29;
+    var cabX = left + bw * 0.02;
+    var cabY = deckY - 7 - cabH;
+    var cabG = ctx.createLinearGradient(cabX, cabY, cabX, deckY);
+    if (g) { cabG.addColorStop(0, '#d2d2d2'); cabG.addColorStop(1, '#9a9a9a'); }
+    else { cabG.addColorStop(0, '#7fb3d5'); cabG.addColorStop(1, '#3d7ea6'); }
+    ctx.beginPath();
+    ctx.moveTo(cabX + cabW * 0.16, cabY);
+    ctx.lineTo(cabX + cabW * 0.84, cabY);
+    ctx.quadraticCurveTo(cabX + cabW, cabY, cabX + cabW, cabY + cabH * 0.24);
+    ctx.lineTo(cabX + cabW, deckY - 7);
+    ctx.lineTo(cabX, deckY - 7);
+    ctx.lineTo(cabX, cabY + cabH * 0.30);
+    ctx.quadraticCurveTo(cabX, cabY, cabX + cabW * 0.16, cabY);
+    ctx.closePath();
+    ctx.fillStyle = cabG;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#5c5c5c' : '#2c6285';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    /* 车窗 */
+    ctx.fillStyle = g ? 'rgba(255,255,255,0.62)' : 'rgba(216,238,252,0.92)';
+    rr(cabX + cabW * 0.14, cabY + cabH * 0.16, cabW * 0.30, cabH * 0.34, 3);
+    ctx.fill();
+    rr(cabX + cabW * 0.54, cabY + cabH * 0.16, cabW * 0.32, cabH * 0.34, 3);
+    ctx.fill();
+
+    /* 货斗前后挡板 */
+    ctx.fillStyle = g ? '#7a7a7a' : '#55636e';
+    rr(left + bw * 0.34, deckY - 7 - bw * 0.085, 5, bw * 0.085, 2);
+    ctx.fill();
+    rr(left + bw * 0.955, deckY - 7 - bw * 0.06, 5, bw * 0.06, 2);
+    ctx.fill();
+
+    /* 车厢中心参考刻线 */
+    ctx.save();
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = g ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(left + bw * 0.655, deckY - 7);
+    ctx.lineTo(left + bw * 0.655, deckY - 7 - bw * 0.15);
+    ctx.stroke();
+    ctx.restore();
+
+    /* 车轮 */
+    var wx = [left + bw * 0.20, left + bw * 0.80];
+    for (var i = 0; i < 2; i++) {
+      ctx.save();
+      ctx.translate(wx[i], wy);
+      ctx.beginPath();
+      ctx.arc(0, 0, wheelR, 0, Math.PI * 2);
+      ctx.fillStyle = g ? '#3a3a3a' : '#2f3b45';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, 0, wheelR * 0.46, 0, Math.PI * 2);
+      ctx.fillStyle = g ? '#b8b8b8' : '#c6d2da';
+      ctx.fill();
+      ctx.strokeStyle = g ? '#8a8a8a' : '#8d9ba6';
+      ctx.lineWidth = 1.8;
+      ctx.save();
+      ctx.rotate(wheelAng);
+      for (var sp = 0; sp < 3; sp++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(sp * Math.PI / 3) * wheelR * 0.44,
+                   Math.sin(sp * Math.PI / 3) * wheelR * 0.44);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-Math.cos(sp * Math.PI / 3) * wheelR * 0.44,
+                   -Math.sin(sp * Math.PI / 3) * wheelR * 0.44);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.restore();
+    }
+
+    /* 木块（站在货台上，基准为货台中心） */
+    var bxx = left + bw * 0.655 + rel * L.relPx;
+    var blw = L.blockW, blh = L.blockH;
+    var bly = deckY - 7 - blh;
+    var blg = ctx.createLinearGradient(0, bly, 0, bly + blh);
+    if (g) { blg.addColorStop(0, '#dcdcdc'); blg.addColorStop(1, '#9a9a9a'); }
+    else { blg.addColorStop(0, '#f2d6a7'); blg.addColorStop(1, '#c9a267'); }
+    rr(bxx - blw / 2, bly, blw, blh, 3);
+    ctx.fillStyle = blg;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#4a4a4a' : '#8d6a3a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    /* 木块底部摩擦纹 */
+    ctx.strokeStyle = g ? 'rgba(0,0,0,0.25)' : 'rgba(120,85,40,0.35)';
+    ctx.lineWidth = 1;
+    for (var k = 0; k < 3; k++) {
+      ctx.beginPath();
+      ctx.moveTo(bxx - blw * 0.30 + k * blw * 0.28, bly + blh - 4);
+      ctx.lineTo(bxx - blw * 0.30 + k * blw * 0.28, bly + blh - 9);
+      ctx.stroke();
+    }
+
+    /* 相对位移标记 */
+    if (showMark && Math.abs(rel) > 0.01) {
+      var y0 = bly - 6;
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = g ? '#333' : cVb;
+      ctx.lineWidth = 1.4;
+      var refX = left + bw * 0.655;
+      ctx.beginPath();
+      ctx.moveTo(refX, y0);
+      ctx.lineTo(bxx, y0);
+      ctx.stroke();
+      ctx.restore();
+
+      text((rel > 0 ? '相对车向前 ' : '相对车向后 ') + Math.abs(rel * 100).toFixed(0) + ' cm',
+        (refX + bxx) / 2, y0 - (L.compact ? 9 : 11), g ? '#222' : cVb, L.compact ? 9 : 10, 'center', '700');
+    }
+
+    ctx.restore();
+  }
+
+  /* ===== 读数 ===== */
+  function updateReadout() {
+    var st = stateCode();
+    var g0 = gray();
+    var label = st === 1 ? '启动' : st === 3 ? '刹车' : '匀速';
+    var color = g0 ? '#555555' : (st === 1 ? '#e67e22' : st === 3 ? '#e74c3c' : '#27ae60');
+    var okc = g0 ? '#333333' : '#c0392b';
+    var ok = function (t) { return '<br><span style="color:' + okc + ';font-weight:700">' + t + '</span>'; };
+
+    var html = '';
+    html += '车速 v车 = <b>' + Math.abs(vCar).toFixed(2) + '</b> m/s<br>';
+    html += '木块速度 v块 = <b>' + Math.abs(vBlock).toFixed(2) + '</b> m/s<br>';
+    html += '车加速度 a = <b>' + aCar.toFixed(1) + '</b> m/s²<br>';
+    html += '相对位移 <b>' + (rel * 100).toFixed(0) + '</b> cm（' + (rel > 0.005 ? '向前' : rel < -0.005 ? '向后' : '基本重合') + '）<br>';
+    html += '状态：<span class="badge" style="background:' + color + '">' + label + '</span>';
+    if (st === 1) html += ok('车加速向前，木块因惯性保持静止，相对车向后滑');
+    else if (st === 3) html += ok('车突然减速，木块因惯性继续前进，相对车向前冲');
+    else if (Math.abs(rel) >= REL_MAX - 0.02) html += ok('木块已抵住挡板，随车一起运动');
+    else if (Math.abs(vCar) > 0.2) html += ok('车匀速，木块与车同速，相对静止');
+    else html += ok('车静止，木块也静止');
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    if (c === lastState) return;
+    lastState = c;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+
+  /* ===== 交互 ===== */
+  document.getElementById('muRange').addEventListener('input', function (e) {
+    mu = parseFloat(e.target.value);
+    document.getElementById('muVal').textContent = mu.toFixed(2);
+    draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function (e) { showForce = e.target.checked; draw(); });
+  document.getElementById('showMark').addEventListener('change', function (e) { showMark = e.target.checked; draw(); });
+
+  document.getElementById('startBtn').addEventListener('click', function () {
+    vCar = 0; vBlock = 0; rel = 0;
+    vTarget = V_CRUISE; aCarMax = 9;
+  });
+  document.getElementById('steadyBtn').addEventListener('click', function () {
+    vTarget = V_CRUISE; aCarMax = 1.6;
+  });
+  document.getElementById('brakeBtn').addEventListener('click', function () {
+    vTarget = 0; aCarMax = 11;
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    mu = 0.20; vCar = 0; vBlock = 0; rel = 0; xCar = 0;
+    vTarget = 0; aCarMax = 1.6; wheelAng = 0;
+    showForce = true; showMark = true;
+    document.getElementById('muVal').textContent = '0.20';
+    document.getElementById('muRange').value = 0.20;
+    document.getElementById('showForce').checked = true;
+    document.getElementById('showMark').checked = true;
+    draw();
+  });
+
+  window.addEventListener('themechange', function () { draw(); });
+  window.addEventListener('resize', function () { fit(); draw(); });
+
+  var lastFrame = 0;
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);
+    lastFrame = ts;
+    draw(dt);
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
