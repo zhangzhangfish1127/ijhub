@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>斜面：省力与机械效率 · 初中科学动态实验室</title>
+<link rel="icon" type="image/png" href="../shared/new-icon.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .lab-side .sub { font-size: 13px; color: #666; margin: 0 0 6px; }
+  .lab-side .val { color: #e74c3c; font-weight: 600; }
+  .lab-side .row label { margin: 0; }
+  .case-table th { white-space: nowrap; }
+  .case-table td:first-child { width: 30px; text-align: center; }
+  .case-table td:nth-child(2) { white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+  .bar-wrap { height: 8px; background: #ecf0f1; border-radius: 4px; overflow: hidden; margin: 6px 0 2px; }
+  .bar-in { height: 100%; background: #27ae60; border-radius: 4px; transition: width 0.25s; }
+</style>
+</head>
+<body>
+<a class="back" href="../index.html">← 返回主页</a>
+<h1>斜面：省力与机械效率</h1>
+
+<div class="lab">
+<aside class="lab-side">
+  <table class="case-table" id="caseTable">
+    <thead><tr><th>情况</th><th>斜面特点</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr data-case="1"><td>1</td><td>坡度缓、斜面长</td><td>省力多，路程长</td></tr>
+      <tr data-case="2"><td>2</td><td>坡度陡、斜面短</td><td>省力少，路程短</td></tr>
+      <tr data-case="3"><td>3</td><td>光滑无摩擦</td><td>机械效率 100%</td></tr>
+    </tbody>
+  </table>
+
+  <h3>控制面板</h3>
+
+  <label>斜面倾角 θ = <span class="val" id="angVal">30</span> °
+    <input id="angRange" type="range" min="15" max="60" step="1" value="30">
+  </label>
+
+  <label>物体质量 m = <span class="val" id="massVal">5.0</span> kg
+    <input id="massRange" type="range" min="1" max="20" step="0.5" value="5">
+  </label>
+
+  <label>斜面摩擦因数 μ = <span class="val" id="muVal">0.20</span>
+    <input id="muRange" type="range" min="0" max="0.60" step="0.01" value="0.20">
+  </label>
+
+  <div class="row"><input type="checkbox" id="showForce" checked><label for="showForce">显示受力箭头</label></div>
+  <div class="row"><input type="checkbox" id="showDecomp" checked><label for="showDecomp">显示重力分解</label></div>
+
+  <hr style="border:none; border-top:1px solid #eee; margin:12px 0">
+
+  <p class="sub">操作</p>
+  <button id="pullBtn">沿斜面拉上去</button>
+  <button id="resetBtn" class="secondary">↺ 重置</button>
+
+  <div class="readout" id="readout"></div>
+</aside>
+
+<main class="lab-main">
+  <div class="stage">
+    <canvas id="cv" style="aspect-ratio:16/10"></canvas>
+    <div class="legend">
+      <span id="lgObj">物体</span>
+      <span id="lgF">拉力 F</span>
+      <span id="lgG">重力 G</span>
+      <span id="lgFp">G∥ 与 G⊥</span>
+    </div>
+    <div class="hint">改变倾角和摩擦，比较“直接搬上去”和“沿斜面拉上去”要用的力</div>
+  </div>
+</main>
+</div>
+
+<div class="site-footer">
+  作者：zhangzhangfish ·
+  <a href="../about.html">简介</a> ·
+  <a href="../feedback.html">反馈</a> ·
+  <a href="../support.html">支持我们</a>
+</div>
+
+<script src="../shared/common.js"></script>
+<script>
+(function () {
+  App.injectTopbar();
+
+  var canvas = document.getElementById('cv');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0;
+
+  var G_ACC = 9.8;
+  var L_M = 2.0;                 // m，斜面长度
+
+  var angleDeg = 30;
+  var massKg = 5;
+  var mu = 0.20;
+
+  var sM = 0.80;                 // m，物体沿斜面已移动距离
+  var pulling = false;
+  var lastState = 0;
+  var showForce = true, showDecomp = true;
+
+  function themeName() { return App.getThemeName ? App.getThemeName() : 'normal'; }
+  function gray() { return themeName() === 'achromatopsia'; }
+
+  function fit() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = rect.width;
+    H = rect.height;
+  }
+
+  function layout() {
+    var compact = W < 520;
+    var Lpx = Math.min(W * (compact ? 0.62 : 0.54), H * 0.92);
+    return {
+      baseX: W * (compact ? 0.86 : 0.82),
+      baseY: H * 0.86,
+      Lpx: Lpx,
+      compact: compact,
+      blockW: Math.min(W * 0.10, 62) * (compact ? 0.78 : 1),
+      blockH: Math.min(W * 0.068, 42) * (compact ? 0.80 : 1)
+    };
+  }
+
+  /* ===== 物理 ===== */
+  function rad() { return angleDeg * Math.PI / 180; }
+  function weight() { return massKg * G_ACC; }
+  function heightM() { return L_M * Math.sin(rad()); }
+  function pullForce() { return weight() * (Math.sin(rad()) + mu * Math.cos(rad())); }
+  function workUseful() { return weight() * heightM(); }
+  function workTotal() { return pullForce() * L_M; }
+  function efficiency() { return workTotal() > 0 ? workUseful() / workTotal() : 0; }
+
+  function stateCode() {
+    if (mu < 0.02) return 3;
+    return angleDeg < 35 ? 1 : 2;
+  }
+
+  /* ===== 工具 ===== */
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function text(str, x, y, color, size, align, weight) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = (weight || '500') + ' ' + (size || 12) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  function arrow(x1, y1, x2, y2, color, width, halo) {
+    var ang = Math.atan2(y2 - y1, x2 - x1);
+    var head = 7;
+    if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 3) return;
+    ctx.save();
+    if (halo) { ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3; }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - head * Math.cos(ang - 0.42), y2 - head * Math.sin(ang - 0.42));
+    ctx.lineTo(x2 - head * Math.cos(ang + 0.42), y2 - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ===== 主绘制 ===== */
+  function draw(dt) {
+    var L = layout();
+    var g = gray();
+    var TH = App.getTheme();
+    var cInk = g ? '#111111' : '#2c3e50';
+    var cMuted = g ? '#5a5a5a' : '#8a949c';
+    var cF = g ? '#1c1c1c' : TH.ray1;
+    var cG = g ? '#6f6f6f' : TH.ray2;
+    var cP = g ? '#8a8a8a' : TH.ray3;
+
+    if (dt && pulling) {
+      sM += 0.55 * dt;
+      if (sM >= L_M) { sM = L_M; pulling = false; }
+    }
+
+    ctx.clearRect(0, 0, W, H);
+
+    var th = rad();
+    var cosT = Math.cos(th), sinT = Math.sin(th);
+    var P0 = { x: L.baseX, y: L.baseY };
+    var Apex = { x: P0.x - cosT * L.Lpx, y: P0.y - sinT * L.Lpx };
+    var BL = { x: Apex.x, y: P0.y };
+
+    /* --- 天空 --- */
+    var sky = ctx.createLinearGradient(0, 0, 0, L.baseY);
+    if (g) { sky.addColorStop(0, '#f1f1f1'); sky.addColorStop(1, '#dcdcdc'); }
+    else { sky.addColorStop(0, '#f2fafd'); sky.addColorStop(1, '#d9edf7'); }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, L.baseY);
+
+    /* --- 地面 --- */
+    var gg = ctx.createLinearGradient(0, L.baseY, 0, H);
+    if (g) { gg.addColorStop(0, '#b6b6b6'); gg.addColorStop(1, '#909090'); }
+    else { gg.addColorStop(0, '#bfc9b0'); gg.addColorStop(1, '#8f9a79'); }
+    ctx.fillStyle = gg;
+    ctx.fillRect(0, L.baseY, W, H - L.baseY);
+    ctx.strokeStyle = g ? '#7a7a7a' : 'rgba(90,110,70,0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, L.baseY);
+    ctx.lineTo(W, L.baseY);
+    ctx.stroke();
+
+    /* --- 高度虚线 --- */
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = g ? '#777' : 'rgba(120,140,160,0.85)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(Apex.x, Apex.y);
+    ctx.lineTo(Apex.x, P0.y);
+    ctx.stroke();
+    ctx.restore();
+    var hm = heightM();
+    var hpx = sinT * L.Lpx;
+    text(L.compact ? hm.toFixed(1) + 'm' : 'h = ' + hm.toFixed(2) + ' m',
+      Apex.x - (L.compact ? 5 : 8), Apex.y + hpx * 0.5, g ? '#333' : '#5d6d7e',
+      L.compact ? 9.5 : 11, 'right', '600');
+
+    /* --- 斜面三角 --- */
+    var tri = ctx.createLinearGradient(P0.x, P0.y, Apex.x, Apex.y);
+    if (g) { tri.addColorStop(0, '#a0a0a0'); tri.addColorStop(1, '#c8c8c8'); }
+    else { tri.addColorStop(0, '#8199ae'); tri.addColorStop(1, '#b8c9d8'); }
+    ctx.beginPath();
+    ctx.moveTo(BL.x, BL.y);
+    ctx.lineTo(P0.x, P0.y);
+    ctx.lineTo(Apex.x, Apex.y);
+    ctx.closePath();
+    ctx.fillStyle = tri;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#5e5e5e' : '#6b8299';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    /* --- 角度弧 --- */
+    var arcR = Math.min(L.Lpx * 0.17, 48);
+    ctx.save();
+    ctx.strokeStyle = g ? '#333' : '#34495e';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(P0.x, P0.y, arcR, Math.PI, Math.PI + th, false);
+    ctx.stroke();
+    ctx.restore();
+    var midA = Math.PI + th / 2;
+    text(angleDeg + '°', P0.x + Math.cos(midA) * (arcR + 16),
+      P0.y + Math.sin(midA) * (arcR + 16), cInk, 12, 'center', '700');
+
+    /* --- 斜面长度标注 --- */
+    var tL = 0.76;
+    var midX = P0.x - cosT * L.Lpx * tL;
+    var midY = P0.y - sinT * L.Lpx * tL;
+    var nx = sinT, ny = -cosT;
+    text(L.compact ? L_M.toFixed(1) + 'm' : 'L = ' + L_M.toFixed(1) + ' m',
+      midX + nx * (L.compact ? 16 : 26), midY + ny * (L.compact ? 16 : 26),
+      g ? '#333' : '#5d6d7e', L.compact ? 9.5 : 11, 'center', '600');
+
+    /* --- 物体 --- */
+    var sPx = (sM / L_M) * L.Lpx;
+    var bcx = P0.x - cosT * sPx + nx * (L.blockH / 2);
+    var bcy = P0.y - sinT * sPx + ny * (L.blockH / 2);
+    drawObject(bcx, bcy, th, L, g);
+
+    /* --- 受力箭头 --- */
+    if (showForce) {
+      var ux = -cosT, uy = -sinT;              // 沿斜面向上
+      var sx0 = bcx + ux * (L.blockW * 0.46);
+      var sy0 = bcy + uy * (L.blockW * 0.46);
+      var fLen = Math.min(W * 0.20, pullForce() * 2.4);
+      fLen = Math.min(fLen, (sx0 - 14) / Math.max(0.2, -ux), (sy0 - 14) / Math.max(0.2, -uy));
+      if (fLen > 8) {
+        var fx2 = sx0 + ux * fLen, fy2 = sy0 + uy * fLen;
+        arrow(sx0, sy0, fx2, fy2, cF, 3, g);
+        text(L.compact ? pullForce().toFixed(0) + 'N' : 'F=' + pullForce().toFixed(1) + 'N',
+          fx2 - 4, fy2 - (L.compact ? 9 : 12), cF, L.compact ? 9.5 : 10.5, 'right', '700');
+      }
+    }
+
+    if (showDecomp) {
+      var Gv = weight();
+
+      /* G 竖直向下 */
+      var gLen = Math.min(H * 0.20, Gv * 1.6);
+      gLen = Math.min(gLen, L.baseY + 4 - bcy);
+      if (gLen > 8) {
+        arrow(bcx, bcy, bcx, bcy + gLen, cG, 2.6, g);
+        text(L.compact ? 'G' : 'G=' + Gv.toFixed(0) + 'N', bcx + 6, bcy + gLen + (L.compact ? 8 : 10),
+          cG, L.compact ? 9 : 10, 'left', '700');
+      }
+
+      /* G∥ 沿斜面向下 */
+      var gLenP = Math.min(H * 0.16, Gv * sinT * 3.0);
+      gLenP = Math.min(gLenP, (W - 16 - bcx) / Math.max(0.2, cosT), (H - 16 - bcy) / Math.max(0.2, sinT));
+      if (gLenP > 8) {
+        var px2 = bcx + cosT * gLenP, py2 = bcy + sinT * gLenP;
+        arrow(bcx, bcy, px2, py2, cP, 2.2, g);
+        text(L.compact ? 'G∥' : 'G∥=' + (Gv * sinT).toFixed(0) + 'N', px2 + 6, py2 + 2,
+          cP, L.compact ? 9 : 10, 'left', '700');
+      }
+
+      /* G⊥ 垂直压向斜面 */
+      var gLenN = Math.min(H * 0.13, Gv * cosT * 2.6);
+      if (gLenN > 8) {
+        var qx2 = bcx - nx * gLenN, qy2 = bcy - ny * gLenN;
+        arrow(bcx, bcy, qx2, qy2, cP, 2.2, g);
+        text('G⊥', qx2 - 6, qy2, cP, 10, 'right', '700');
+      }
+    }
+
+    /* --- 效率条 --- */
+    drawEffBar(L, g, cInk, cMuted);
+
+    /* --- 顶部状态 --- */
+    if (L.compact) {
+      text('θ=' + angleDeg + '°　F=' + pullForce().toFixed(1) + 'N　η=' + (efficiency() * 100).toFixed(0) + '%',
+        W * 0.03, H * 0.07, cInk, 10.5, 'left', '700');
+    } else {
+      text('沿斜面匀速拉动', W * 0.03, H * 0.07, cInk, 14, 'left', '700');
+      text('不用斜面直接提起需要 F = ' + weight().toFixed(1) + ' N　沿斜面只需 F = ' +
+        pullForce().toFixed(1) + ' N', W * 0.03, H * 0.11, cMuted, 11.5, 'left');
+    }
+
+    document.getElementById('lgObj').style.setProperty('--c', g ? '#9a9a9a' : '#c8a06a');
+    document.getElementById('lgF').style.setProperty('--c', g ? '#1c1c1c' : cF);
+    document.getElementById('lgG').style.setProperty('--c', g ? '#6f6f6f' : cG);
+    document.getElementById('lgFp').style.setProperty('--c', g ? '#8a8a8a' : cP);
+
+    updateReadout();
+    highlight(stateCode());
+  }
+
+  function drawObject(cx, cy, th, L, g) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-th);
+
+    var w = L.blockW, h = L.blockH;
+
+    /* 影子 */
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(2, h * 0.5 + 3, w * 0.46, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    var bg = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    if (g) { bg.addColorStop(0, '#d4d4d4'); bg.addColorStop(1, '#9a9a9a'); }
+    else { bg.addColorStop(0, '#efd0a0'); bg.addColorStop(1, '#c69a5e'); }
+    rr(-w / 2, -h / 2, w, h, 4);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.strokeStyle = g ? '#4a4a4a' : '#8d6a3a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    text(massKg.toFixed(1) + ' kg', 0, 0, g ? '#333' : '#6b4c23', 10.5, 'center', '700');
+    ctx.restore();
+  }
+
+  function drawEffBar(L, g, cInk, cMuted) {
+    if (L.compact) return;
+    var eta = efficiency();
+    var bw = L.compact ? W * 0.34 : 190;
+    var bx = W - bw - (L.compact ? 14 : 26);
+    var by = H * 0.075;
+    ctx.save();
+    rr(bx, by, bw, 9, 5);
+    ctx.fillStyle = g ? '#c8c8c8' : '#dfe7ee';
+    ctx.fill();
+    ctx.strokeStyle = g ? '#a0a0a0' : 'rgba(120,145,165,0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    var fillW = Math.max(2, bw * Math.max(0, Math.min(1, eta)));
+    rr(bx, by, fillW, 9, 5);
+    ctx.fillStyle = g ? '#4a4a4a' : (eta > 0.8 ? '#27ae60' : eta > 0.5 ? '#f39c12' : '#e74c3c');
+    ctx.fill();
+    text('机械效率 η = ' + (eta * 100).toFixed(0) + '%', bx + bw, by + 22, cInk,
+      L.compact ? 10 : 11, 'right', '700');
+    text('W有 ' + workUseful().toFixed(1) + ' J / W总 ' + workTotal().toFixed(1) + ' J',
+      bx + bw, by + (L.compact ? 36 : 40), cMuted, L.compact ? 9 : 10, 'right');
+    ctx.restore();
+  }
+
+  /* ===== 读数 ===== */
+  function updateReadout() {
+    var g0 = gray();
+    var eta = efficiency();
+    var ratio = weight() > 0 ? pullForce() / weight() : 0;
+    var color = g0 ? '#555' : (eta > 0.8 ? '#27ae60' : eta > 0.5 ? '#f39c12' : '#e74c3c');
+    var okc = g0 ? '#333333' : '#27ae60';
+    var ok = function (t) { return '<br><span style="color:' + okc + ';font-weight:700">' + t + '</span>'; };
+
+    var html = '';
+    html += 'G = <b>' + weight().toFixed(1) + '</b> N　h = <b>' + heightM().toFixed(2) + '</b> m　L = ' + L_M.toFixed(1) + ' m<br>';
+    html += '沿斜面拉力 F = G·sinθ + μG·cosθ = <b>' + pullForce().toFixed(1) + '</b> N<br>';
+    html += '直接提起需要 <b>' + weight().toFixed(1) + '</b> N，省力 <b>' +
+      ((1 - ratio) * 100).toFixed(0) + '%</b><br>';
+    html += 'W有 = Gh = <b>' + workUseful().toFixed(1) + '</b> J<br>';
+    html += 'W总 = FL = <b>' + workTotal().toFixed(1) + '</b> J<br>';
+    html += '机械效率 η = <span class="badge" style="background:' + color + '">' +
+      (eta * 100).toFixed(0) + '%</span>';
+    if (mu < 0.02) {
+      html += ok('理想斜面：W有 = W总，η = 100%');
+    } else if (angleDeg < 35) {
+      html += ok('坡度缓：更省力，但要把物体拉过更长的距离');
+    } else {
+      html += ok('坡度陡：省力少，但路程短、摩擦损失也少');
+    }
+    document.getElementById('readout').innerHTML = html;
+  }
+
+  function highlight(c) {
+    if (c === lastState) return;
+    lastState = c;
+    var rows = document.querySelectorAll('#caseTable tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].getAttribute('data-case') === String(c));
+    }
+  }
+
+  /* ===== 交互 ===== */
+  function syncUI() {
+    document.getElementById('angRange').value = angleDeg;
+    document.getElementById('angVal').textContent = angleDeg;
+    document.getElementById('massRange').value = massKg;
+    document.getElementById('massVal').textContent = massKg.toFixed(1);
+    document.getElementById('muRange').value = mu;
+    document.getElementById('muVal').textContent = mu.toFixed(2);
+  }
+
+  document.getElementById('angRange').addEventListener('input', function (e) {
+    angleDeg = parseFloat(e.target.value);
+    document.getElementById('angVal').textContent = angleDeg;
+    draw();
+  });
+  document.getElementById('massRange').addEventListener('input', function (e) {
+    massKg = parseFloat(e.target.value);
+    document.getElementById('massVal').textContent = massKg.toFixed(1);
+    draw();
+  });
+  document.getElementById('muRange').addEventListener('input', function (e) {
+    mu = parseFloat(e.target.value);
+    document.getElementById('muVal').textContent = mu.toFixed(2);
+    draw();
+  });
+  document.getElementById('showForce').addEventListener('change', function (e) { showForce = e.target.checked; draw(); });
+  document.getElementById('showDecomp').addEventListener('change', function (e) { showDecomp = e.target.checked; draw(); });
+
+  document.getElementById('pullBtn').addEventListener('click', function () {
+    if (sM >= L_M - 0.001) sM = 0.20;
+    pulling = true;
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    angleDeg = 30; massKg = 5; mu = 0.20; sM = 0.80; pulling = false;
+    showForce = true; showDecomp = true;
+    document.getElementById('showForce').checked = true;
+    document.getElementById('showDecomp').checked = true;
+    syncUI(); draw();
+  });
+
+  window.addEventListener('themechange', function () { draw(); });
+  window.addEventListener('resize', function () { fit(); draw(); });
+
+  var lastFrame = 0;
+  function loop(ts) {
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);
+    lastFrame = ts;
+    draw(dt);
+    requestAnimationFrame(loop);
+  }
+
+  fit();
+  syncUI();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
